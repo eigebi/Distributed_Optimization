@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import minimize
+from scipy.optimize import LinearConstraint
 
 #test problem is simple and do not contains grouping or partitioning
 
@@ -9,9 +10,10 @@ class BaseProblem:
     def __init__(self,func,varID,is_min=True):
         self.func = func
         #this ID is only used to call the global variable
-        self.varID = varID
+        self.varID = np.array(varID)
         self.gamma = np.abs(np.random.randn(len(varID)))
         self.is_min = is_min
+        self.x_next = []
     def __call__(self, x):
         return self.func(x)
     
@@ -22,6 +24,13 @@ class BaseProblem:
     def append(self):
         pass
 
+    def optimize(self,x_global):
+        rho = 1
+        x_i = x_global[self.varID]
+        f_i = lambda x: self.func(x)+self.gamma@(x-x_i)+rho/2*np.linalg.norm(x-x_i)**2
+        if self.is_min:
+            x = minimize(f_i,np.zeros(len(self.varID)))
+        return
 
 
 def exam_func(arg):
@@ -59,7 +68,7 @@ if __name__ == '__main__':
         p.con.append(BaseProblem(lambda x: x - np.random.randint(1,16) ,[i]))
     for i in range(5):
         p.con.append(BaseProblem(lambda x: -x ,[i]))
-    p.con.append(BaseProblem(lambda x: sum(x)-30 ,np.arange(6)))
+    p.con.append(BaseProblem(lambda x: sum(x)-30 ,np.arange(5)))
     
     for i in range(11):
         p.r.append(BaseProblem(lambda x: x , [i],is_min=False))
@@ -73,12 +82,66 @@ if __name__ == '__main__':
     T = 100
     rho = 1
 
+
+    # need an index table to connect z to all the local variables, which is inverted to the varID
+    # can be wrapped into a function
+    z_obj_id = []
+    z_con_id = []
+    y_id = []
+    for i in range(5):
+        temp_o = []
+        temp_c = []
+        for j in range(len(p.obj)):
+            if i in p.obj[j].varID:
+                id_ = np.where(p.obj[j].varID==i)
+                temp_o.append([j,id_])
+        z_obj_id.append(temp_o)
+        for j in range(len(p.con)):
+            if i in p.con[j].varID:
+                id_ = np.where(p.con[j].varID==i)
+                temp_c.append([j,id_])
+        z_con_id.append(temp_c)
+
+
+                
     for t in range(T):
         #update the objective function
         for i in range(5):
+            # to be wrapped into optimize()
             z_i= z[p.obj[i].varID]
             f_i = lambda x: p.obj[i].func(x)+p.obj[i].gamma@(x-z_i)+rho/2*np.linalg.norm(x-z_i)**2
-            x = minimize(f_i,np.zeros(len(p.obj[i].varID)))
+            x_i = minimize(f_i,np.zeros(len(p.obj[i].varID))).x
+            p.obj[i].x_next = x_i
             #the square norm of x-z
+        for i in range(11):
+            # to be wrapped into optimize()
+            z_i= z[p.con[i].varID]
+            f_i = lambda x: y[i]*p.con[i].func(x)+p.con[i].gamma@(x-z_i)+rho/2*np.linalg.norm(x-z_i)**2
+            x_i = minimize(f_i,np.zeros(len(p.r[i].varID))).x
+            p.con[i].x_next = x_i
+            #the square norm of x-y
+            #it is better to store the con_func value to serve the next step update
 
-            
+        #update lambda in the lagrangian reformulation
+        for i in range(11):
+            # to be wrapped into optimize()
+            y_i= y[p.r[i].varID]
+            f_i = lambda r: -r*p.con[i](p.con[i].x_next) + p.r[i].gamma@(r-y_i)+rho/2*np.linalg.norm(r-y_i)**2
+            constraint = LinearConstraint(np.eye(1),0)
+            r_i = minimize(f_i,np.zeros(len(p.r[i].varID)),constraints=constraint).x
+            p.r[i].x_next = r_i
+            #the square norm of x-y
+
+        #above is the update of local variables
+
+        #then update the global variables
+        #derive the index together is better, but here we call the index again (to be optimized)
+        for i in range(len(z)):
+            z[i]=(sum(z_obj_id[i]))
+
+        for i in range(len(y)):
+            y[i] = 1/11*sum([p.r[j].x_next for j in range(11)])
+
+    a = []
+
+       
