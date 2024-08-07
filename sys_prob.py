@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.optimize import minimize
 
 #test problem is simple and do not contains grouping or partitioning
 
@@ -9,7 +10,7 @@ class BaseProblem:
         self.func = func
         #this ID is only used to call the global variable
         self.varID = varID
-        
+        self.gamma = np.abs(np.random.randn(len(varID)))
         self.is_min = is_min
     def __call__(self, x):
         return self.func(x)
@@ -62,11 +63,22 @@ if __name__ == '__main__':
     
     for i in range(11):
         p.r.append(BaseProblem(lambda x: x , [i],is_min=False))
-
+    # global x
     z = np.random.randn(5)
+    # global lambda
     y = np.abs(np.random.randn(11))
+    #gamma = np.abs(np.random.randn(11)) this gamma is local
 
 
     T = 100
+    rho = 1
+
     for t in range(T):
-        
+        #update the objective function
+        for i in range(5):
+            z_i= z[p.obj[i].varID]
+            f_i = lambda x: p.obj[i].func(x)+p.obj[i].gamma@(x-z_i)+rho/2*np.linalg.norm(x-z_i)**2
+            x = minimize(f_i,np.zeros(len(p.obj[i].varID)))
+            #the square norm of x-z
+
+            
