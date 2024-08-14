@@ -60,7 +60,7 @@ if __name__ == '__main__':
     jac = []
     for _ in range(5):
         temp = np.random.randn(3,3)
-        #temp = temp @ temp.T
+        temp = temp @ temp.T
         temp2 = np.random.randn(3)*15
 
         f_s.append(lambda x: x @ temp @ x + temp2 @ x)
@@ -85,10 +85,10 @@ if __name__ == '__main__':
     # global x
     z = np.random.randn(5)
     # global lambda
-    y = np.abs(np.random.randn(11))
+    y = np.abs(np.random.randn(11)).reshape(-1,1)
     #gamma = np.abs(np.random.randn(11)) this gamma is local
     for i in range(11):
-        p.r[i].x_next = y[i]
+        p.r[i].x_next =y[i]
 
 
     T = 500
@@ -144,7 +144,10 @@ if __name__ == '__main__':
             f_i = lambda r: -r*p.con[i](p.con[i].x_next) + p.r[i].gamma@(r-y_i)+rho/2*np.linalg.norm(r-y_i)**2
             constraint = LinearConstraint(np.eye(1),0)
             r_i = minimize(f_i,np.zeros(len(p.r[i].varID)),constraints=constraint).x
-            p.r[i].x_next = r_i
+            
+            p.r[i].x_next += 0.001* (p.con[i](z[p.con[i].varID]))
+            p.r[i].x_next = np.zeros((1,1)) if p.r[i].x_next<0 else p.r[i].x_next
+
             #the square norm of x-y
 
         #above is the update of local variables

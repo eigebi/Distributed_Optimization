@@ -55,13 +55,18 @@ class prob:
 
 
 if __name__ == '__main__':
+
+
+    num_o = 8
+
+
     f_s = []
     non_convex = True
     jac = []
-    for _ in range(5):
+    for _ in range(num_o):
         temp = np.random.randn(3,3)
-        #temp = temp @ temp.T
-        temp2 = np.random.randn(3)*15
+        temp = temp @ temp.T
+        temp2 = np.random.randn(3)*50
 
         f_s.append(lambda x: x @ temp @ x + temp2 @ x)
         jac.append(lambda x: 2*temp @ x + temp2)
@@ -69,25 +74,25 @@ if __name__ == '__main__':
         #np.random.choice(5,3,replace=False)
     p = prob()
     for f in f_s:
-        var_select = np.random.choice(5,3,replace=False)
+        var_select = np.random.choice(num_o,3,replace=False)
         p.obj.append(BaseProblem(f,var_select))
-    u_b = np.zeros(6)
-    for i in range(5): 
+    u_b = np.zeros(num_o+1)
+    for i in range(num_o): 
         u_bound = np.random.randint(1,16)
         p.con.append(BaseProblem(lambda x: x - u_bound ,[i]))
         u_b[i]=u_bound
-    for i in range(5):
+    for i in range(num_o):
         p.con.append(BaseProblem(lambda x: -x ,[i]))
-    p.con.append(BaseProblem(lambda x: np.sum(x)-30 ,np.arange(5)))
-    u_b[-1] = 30
-    for i in range(11):
+    p.con.append(BaseProblem(lambda x: np.sum(x)-30 ,np.arange(num_o)))
+    u_b[-1] = 50
+    for i in range(2*num_o+1):
         p.r.append(BaseProblem(lambda x: x , [i],is_min=False))
     # global x
-    z = np.random.randn(5)
+    z = np.random.randn(num_o)
     # global lambda
-    y = np.abs(np.random.randn(11))
+    y = np.abs(np.random.randn(2*num_o+1))
     #gamma = np.abs(np.random.randn(11)) this gamma is local
-    for i in range(11):
+    for i in range(num_o*2+1):
         p.r[i].x_next = y[i]
 
 
@@ -99,7 +104,7 @@ if __name__ == '__main__':
     # can be wrapped into a function
     z_obj_id = []
     z_con_id = []
-    for i in range(5):
+    for i in range(num_o):
         temp_o = []
         temp_c = []
         for j in range(len(p.obj)):
@@ -117,7 +122,7 @@ if __name__ == '__main__':
                 
     for t in range(T):
         #update the objective function
-        for i in range(5):
+        for i in range(num_o):
             # to be wrapped into optimize()
             z_i= z[p.obj[i].varID]
             if non_convex:
@@ -127,7 +132,7 @@ if __name__ == '__main__':
             x_i = minimize(f_i,np.zeros(len(p.obj[i].varID))).x
             p.obj[i].x_next = x_i
             #the square norm of x-z
-        for i in range(11):
+        for i in range(2*num_o+1):
             # to be wrapped into optimize()
             z_i= z[p.con[i].varID]
             #f_i = lambda x: p.r[i].x_next*p.con[i].func(x)+p.con[i].gamma@(x-z_i)+rho/2*np.linalg.norm(x-z_i)**2
@@ -138,7 +143,7 @@ if __name__ == '__main__':
             #it is better to store the con_func value to serve the next step update
 
         #update lambda in the lagrangian reformulation
-        for i in range(11):
+        for i in range(num_o*2+1):
             # to be wrapped into optimize()
             y_i= y[p.r[i].varID]
             f_i = lambda r: -r*p.con[i](p.con[i].x_next) + p.r[i].gamma@(r-y_i)+rho/2*np.linalg.norm(r-y_i)**2
@@ -160,11 +165,11 @@ if __name__ == '__main__':
             y[i] = p.r[i].x_next[0] + 1/rho*p.r[i].gamma[0]
             y[i] = np.maximum(0,y[i])
 
-        for i in range(5):
+        for i in range(num_o):
             p.obj[i].gamma = p.obj[i].gamma + rho*(p.obj[i].x_next-z[p.obj[i].varID])
-        for i in range(11):
+        for i in range(2*num_o+1):
             p.con[i].gamma = p.con[i].gamma + rho*(p.con[i].x_next-z[p.con[i].varID])
-        for i in range(11):
+        for i in range(num_o*2+1):
             p.r[i].gamma = p.r[i].gamma + rho*(p.r[i].x_next-y[p.r[i].varID])
         output = sum([p.obj[k](p.obj[k].x_next) for k in range(5)])
         print("step: "+str(t)+", obj: "+str(output))
@@ -173,10 +178,10 @@ if __name__ == '__main__':
 
     pass
     #compare with fmincon
-    f = lambda x: sum([p.obj[k](x[p.obj[k].varID]) for k in range(5)])   
+    f = lambda x: sum([p.obj[k](x[p.obj[k].varID]) for k in range(num_o)])   
 
-    x0 = np.random.randn(5)
-    A = np.row_stack((np.eye(5),np.ones((1,5))))
+    x0 = np.random.randn(num_o)
+    A = np.row_stack((np.eye(num_o),np.ones((1,num_o))))
     constraint = LinearConstraint(A,0,u_b)
     res = minimize(f,x0,constraints=constraint)
     print("centralized opt: ")
