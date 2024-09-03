@@ -95,6 +95,60 @@ def train(model, train_loader, criterion, optimizer, num_epochs):
         avg_loss = total_loss / len(train_loader)
         print(f"Epoch [{epoch+1}/{num_epochs}], Average Loss: {avg_loss:.4f}")
 
+def r_proj(r,alpha):
+    r[r<-1] = -alpha*r[r<-1]-(alpha-1)
+    r[r>1] = alpha*r[r>1]-(alpha-1)
+    r[(r>=-1) & (r<=1)] = r[(r>=-1) & (r<=1)]**alpha
+
+
+
+def my_train(prob, x_model, L_model, num_epochs, num_steps):
+ 
+    total_loss = 0
+
+    r = torch.abs(torch.randn(5, len_lambda))
+    r = r_proj(r,0.5)
+    #make r to be positive
+    for epoch in range(num_epochs):
+        x_model.eval()
+        L_model.train()
+        # return the ground truth of L given x and r
+        L_truth = prob(x_model(r),r)
+        loss_MSE = torch.nn.MSELoss()
+        L_optimizer.zero_grad()
+        loss_L = loss_MSE(L_model(x_model(r),r),L_truth)
+        loss_L.backward()
+        L_optimizer.step()
+
+
+
+        for step in range(num_steps):
+            x_model.train()
+            L_model.eval()
+            lambda_past = []
+
+            if step % 10 == 0: # this if may not be necessary
+                x_optimizer.zero_grad()
+                L_out = L_model(x_model(lambda_past),lambda_past)
+                loss_x = torch.sum(L_out)
+                loss_x.backward()
+                x_optimizer.step()
+                lambda_past = []
+        x_model.eval()
+        L_model.eval()
+        r.requires_grad = True
+        r_optimizer.zero_grad()
+        L_out = L_model(x_model(r),r)
+        -L_out.backward()
+        r_optimizer.step()
+
+        
+
+
+
+
+
+
 if __name__ == "__main__":
     class arg_nn:
         hidden_size = 32
@@ -110,6 +164,14 @@ if __name__ == "__main__":
     x = x_model(r)
     loss = L_model(x,r)
     pass
+
+    x_optimizer = torch.optim.Adam(x_model.parameters(), lr=0.001)
+    L_optimizer = torch.optim.Adam(L_model.parameters(), lr=0.001)
+    r_optimizer = torch.optim.Adam([r], lr=0.001)
+    # test passed 
+    # construct learning process
+
+
 
 
 
