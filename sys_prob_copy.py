@@ -114,6 +114,8 @@ if __name__ == '__main__':
         z_con_id.append(temp_c)
 
 
+
+
                 
     for t in range(T):
         #update the objective function
@@ -184,5 +186,7 @@ if __name__ == '__main__':
     res = minimize(f,x0,constraints=constraint)
     print("centralized opt: ")
     print(res)
+
+
 
     

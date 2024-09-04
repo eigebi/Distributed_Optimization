@@ -68,7 +68,8 @@ class L_LSTM(nn.Module):
 
         return out
     
-def r_proj(r,alpha):
+def r_proj(r):
+    alpha = 0.8
     r[r<-1] = -alpha*r[r<-1]-(alpha-1)
     r[r>1] = alpha*r[r>1]-(alpha-1)
     r[(r>=-1) & (r<=1)] = r[(r>=-1) & (r<=1)]**alpha
