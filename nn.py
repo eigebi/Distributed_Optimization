@@ -33,7 +33,7 @@ class x_LSTM(nn.Module):
         # the output is a tuple, we only need the first element
         out_temp = self.net_x(r)
         out_r = out_temp[0]
-        out_hidden = out_r[1]
+        out_hidden = out_temp[1]
         
         # Pass lambda through the LSTM
         out_x = self.net_fc(out_r)

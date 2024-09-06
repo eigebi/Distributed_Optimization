@@ -35,17 +35,6 @@ class BaseProblem:
         return
 
 
-def exam_func(arg):
-    # we return a polynomial function give the arg as coefficients
-    # the function has 3 variables with maximum degree 2
-    
-    return lambda x: x @ arg[:-2] @ x + arg[-1]
-
-
-    
-
-
-
 
 class prob:
     def __init__(self):
@@ -53,6 +42,51 @@ class prob:
         self.con = []
         self.r = []
 
+
+class problem_generator(prob):
+    def __init__(self):
+        super(problem_generator,self).__init__()
+        num_o= 5
+        self.num_o = num_o
+        f_s = []
+        jac = []
+        for _ in range(num_o):
+            temp = np.random.randn(3,3)
+            temp = temp @ temp.T
+            temp2 = np.random.randn(3)*50
+
+            f_s.append(lambda x: x @ temp @ x + temp2 @ x)
+            jac.append(lambda x: 2*temp @ x + temp2)
+
+        for f in f_s:
+            var_select = np.random.choice(num_o,3,replace=False)
+            self.obj.append(BaseProblem(f,var_select))
+        u_b = np.zeros(num_o+1)
+        for i in range(num_o): 
+            u_bound = np.random.randint(1,16)
+            self.con.append(BaseProblem(lambda x: x - u_bound ,[i]))
+            u_b[i]=u_bound
+        for i in range(num_o):
+            self.con.append(BaseProblem(lambda x: -x ,[i]))
+        u_b[-1] = np.array([30],dtype=np.float32)
+        self.con.append(BaseProblem(lambda x: np.array([np.sum(x)-u_b[-1]]) ,np.arange(num_o)))
+        
+        for i in range(2*num_o+1):
+            self.r.append(BaseProblem(lambda x: x , [i],is_min=False))
+
+    def __call__(self,X,R):
+        batch_size = X.shape[0]
+        result = np.zeros(batch_size)
+        for i in range(batch_size):
+            result[i] = np.sum([self.obj[k](X[i,self.obj[k].varID]) for k in range(self.num_o)]) + np.sum(np.multiply(R[i,:],np.array([np.array(self.con[k](X[i,self.con[k].varID])) for k in range(2*self.num_o+1)])[0]))
+        return result
+
+
+
+
+
+
+        
 
 if __name__ == '__main__':
 
