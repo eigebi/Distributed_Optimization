@@ -79,7 +79,7 @@ class problem_generator(prob):
         result = np.zeros(batch_size)
         for i in range(batch_size):
             result[i] = np.sum([self.obj[k](X[i,self.obj[k].varID]) for k in range(self.num_o)]) + np.sum(np.multiply(R[i,:],np.array([np.array(self.con[k](X[i,self.con[k].varID])) for k in range(2*self.num_o+1)])[0]))
-        return result
+        return result.reshape(-1,1)
 
 
 

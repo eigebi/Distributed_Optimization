@@ -69,10 +69,18 @@ class L_LSTM(nn.Module):
         return out
     
 def r_proj(r):
-    alpha = 0.8
-    r[r<-1] = -alpha*r[r<-1]-(alpha-1)
-    r[r>1] = alpha*r[r>1]-(alpha-1)
-    r[(r>=-1) & (r<=1)] = r[(r>=-1) & (r<=1)]**alpha
+    _r = torch.zeros_like(r)
+    id_0 = torch.where(r<-1)
+    id_1 = torch.where(r>1)
+    id_2 = torch.where((r>=-1) & (r<=1))
+    alpha = 2
+    if len(id_0[0])>0:
+        _r[id_0] = -alpha*r[id_0]-(alpha-1)
+    if len(id_1[0])>0:
+        _r[id_1] = alpha*r[id_1]-(alpha-1)
+    if len(id_2[0])>0:
+        _r[id_2] = r[id_2]**alpha
+    return _r
 
 
 

@@ -60,8 +60,8 @@ def my_train(prob, x_model, L_model,r, num_epochs, num_steps,optimizer):
             # r update
             r_optimizer.zero_grad()
             _r = r_proj(r)
-            L_out = L_model(x_model(_r),_r)
-            -L_out.backward()
+            L_out = -L_model(x_model(_r),_r)
+            L_out.backward()
             r_optimizer.step()
             
         for param in x_model.parameters():
@@ -74,14 +74,18 @@ def my_train(prob, x_model, L_model,r, num_epochs, num_steps,optimizer):
         
         _r = r_proj(r)
         # here is the only function that needs to be defined
-        L_truth = prob(x_model(_r).detach().numpy(),_r)
+        L_truth = torch.tensor(prob(x_model(_r).detach().numpy(),_r.detach().numpy()),dtype=torch.float32)
         
         L_optimizer.zero_grad()
         loss_L = loss_MSE(L_model(x_model(_r),_r),L_truth)
         loss_L.backward()
         L_optimizer.step()
+        print("L loss", loss_L.detach().numpy())
 
         # here we update L model
+    r_final = r_proj(r)    
+    print("lambda:",r_final)
+    print("x:",x_model(r_final).detach().numpy())
 
 
             
@@ -100,7 +104,7 @@ if __name__ == "__main__":
         hidden_size_x = 8
     len_x = 5
     len_lambda = 2 * len_x +1
-    num_epochs = 100
+    num_epochs = 10000
     num_steps = 10
 
     x_model = x_LSTM(len_x, len_lambda, arg_nn)
