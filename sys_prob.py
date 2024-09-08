@@ -70,6 +70,7 @@ class problem_generator(prob):
             self.con.append(BaseProblem(lambda x: -x ,[i]))
         u_b[-1] = np.array([30],dtype=np.float32)
         self.con.append(BaseProblem(lambda x: np.array([np.sum(x)-u_b[-1]]) ,np.arange(num_o)))
+        self.u_b = u_b
         
         for i in range(2*num_o+1):
             self.r.append(BaseProblem(lambda x: x , [i],is_min=False))
@@ -80,6 +81,15 @@ class problem_generator(prob):
         for i in range(batch_size):
             result[i] = np.sum([self.obj[k](X[i,self.obj[k].varID]) for k in range(self.num_o)]) + np.sum(np.multiply(R[i,:],np.array([np.array(self.con[k](X[i,self.con[k].varID])) for k in range(2*self.num_o+1)])[0]))
         return result.reshape(-1,1)
+    
+    def solve(self):
+        f = lambda x: sum([self.obj[k](x[self.obj[k].varID]) for k in range(self.num_o)])   
+
+        x0 = np.random.randn(self.num_o)
+        A = np.row_stack((np.eye(self.num_o),np.ones((1,self.num_o))))
+        constraint = LinearConstraint(A,0,self.u_b)
+        res = minimize(f,x0,constraints=constraint)
+        return res
 
 
 
