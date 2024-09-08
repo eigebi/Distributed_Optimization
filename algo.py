@@ -17,6 +17,8 @@ def my_train(prob, x_model, L_model,r, num_epochs, num_steps,optimizer):
 
     # the loss for L update
     loss_MSE = torch.nn.MSELoss()
+    loss_CE = torch.nn.CrossEntropyLoss()
+    loss_MAE = torch.nn.L1Loss()
     class data:
         lambda_past = []
         x_past = []
@@ -77,9 +79,12 @@ def my_train(prob, x_model, L_model,r, num_epochs, num_steps,optimizer):
         L_truth = torch.tensor(prob(x_model(_r).detach().numpy(),_r.detach().numpy()),dtype=torch.float32)
         
         L_optimizer.zero_grad()
-        loss_L = loss_MSE(L_model(x_model(_r),_r),L_truth)
+        #loss_L = loss_MSE(L_model(x_model(_r),_r),L_truth)
+        #loss_L = loss_CE(L_model(x_model(_r),_r),L_truth)
+        loss_L = loss_MAE(L_model(x_model(_r),_r),L_truth)
         loss_L.backward()
         L_optimizer.step()
+        
         print("L loss", loss_L.detach().numpy())
 
         # here we update L model
@@ -95,17 +100,20 @@ def my_train(prob, x_model, L_model,r, num_epochs, num_steps,optimizer):
 
 
 if __name__ == "__main__":
-    
+
+    np.random.seed(10000)
     L = problem_generator()
-    
+    out = L.solve().x
+    #print(out)
+    #what
     
     class arg_nn:
         hidden_size = 32
         hidden_size_x = 8
     len_x = 5
     len_lambda = 2 * len_x +1
-    num_epochs = 10000
-    num_steps = 10
+    num_epochs = 1000
+    num_steps = 1
 
     x_model = x_LSTM(len_x, len_lambda, arg_nn)
     L_model = L_LSTM(len_x, len_lambda, arg_nn)
@@ -125,5 +133,6 @@ if __name__ == "__main__":
     pass
 
     
-    my_train(L, x_model, L_model,r, 100, 10, optimizer)
-    pass
+    my_train(L, x_model, L_model,r, num_epochs, num_steps, optimizer)
+
+    print(out)
