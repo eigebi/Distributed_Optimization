@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-#from torch.utils.tensorboard import SummaryWriter
+
 
 
 # this is the centralized version without a projection layer
@@ -99,11 +99,5 @@ if __name__ == "__main__":
     x = x_model(r)
     loss = L_model(x,r)
     pass
-
-    x_optimizer = torch.optim.Adam(x_model.parameters(), lr=0.001)
-    L_optimizer = torch.optim.Adam(L_model.parameters(), lr=0.001)
-    r_optimizer = torch.optim.Adam([r], lr=0.001)
-    # test passed 
-    # construct learning process
 
  

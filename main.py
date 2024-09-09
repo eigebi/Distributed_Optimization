@@ -1,4 +1,6 @@
-import algo
-from sys_prob import prob
-#import torch
+import torch
 import numpy as np
+
+from algo import *
+from sys_prob import *
+from nn import *

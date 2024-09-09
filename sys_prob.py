@@ -90,6 +90,7 @@ class problem_generator(prob):
         constraint = LinearConstraint(A,0,self.u_b)
         res = minimize(f,x0,constraints=constraint)
         return res
+    
 
 
 
