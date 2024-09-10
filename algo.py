@@ -1,164 +1,127 @@
 import torch
 import numpy as np
 from nn import *
-from sys_prob import *
-from collections import namedtuple,deque
+from sys_prob import problem_generator
 from random import sample
+from data_set import data
 
+torch.autograd.set_detect_anomaly(True)
 
-def my_train(prob, x_model, L_model,r, num_epochs, num_steps,optimizer):
+np.random.seed(10000)
+
+def my_train(prob, init_var ,model, num_iteration, num_frame, optimizer):
  
-    total_loss = 0 # to be determined, loss should include the loss of x and L, and also lambda
-    (x_optimizer, L_optimizer, r_optimizer) = optimizer
-    #x_model.train()
-    #L_model.train()
-    #data_set = {"x":[],"r":[],"L":[]}
+ 
+    (x_optimizer, L_optimizer, lambda_optimizer) = optimizer
+    (x_model, L_model, lambda_model) = model
+    (x, r) = init_var
     
-    # initialize a projection of lambda
-    #r = torch.randn(5, len_lambda)
-     #_r is the projected r
+    
 
-    # the loss for L update
+
     loss_MSE = torch.nn.MSELoss()
-    
-    class data:
-        def __init__(self,size=5000):
-            self.lambda_past = []
-            self.x_past = []
-            self.L_past = []
-            self.size = size
-        def reset(self):
-            self.lambda_past = []
-            self.x_past = []
-            self.L_past = []
-        def append(self, x, r, L):
-            self.lambda_past.append(r.detach().numpy())
-            self.x_past.append(x.detach().numpy())
-            self.L_past.append(L)
-            if len(self.lambda_past)>self.size:
-                self.lambda_past.pop(0)
-                self.x_past.pop(0)
-                self.L_past.pop(0)
-    data_epoch = data()
+    data_iteration = data()
+
+    r.requires_grad = True
 
     # freeze x model and learn L model
-    for epoch in range(num_epochs):
-
-        for step in range(num_steps):
-            # in steps, we update x by derive new data. However, this process is better put before L update
-            # here we also want to generate some data for L update
-            for _ in range(5):
-                for param in x_model.parameters():
-                    param.requires_grad = True
-                for param in L_model.parameters():
-                    param.requires_grad = False
-                r.requires_grad = False
-            
-            
-                x_model.zero_grad()
-                _r = r_proj(r)
-                x_ = x_model(_r)
-                L_ = torch.sum(L_model(x_,_r))
-                L_truth = torch.tensor(prob(x_.detach().numpy(),_r.detach().numpy()),dtype=torch.float32)
-                data_epoch.append(x_,_r,L_truth)
-                L_.backward()
-                x_optimizer.step()
-                
-            # store one piece of data
-            #data_epoch.x_past.append(x_.detach().numpy())
-            #data_epoch.lambda_past.append(r.detach().numpy()) # store original r
-            #data_epoch.L_past.append(L_.detach().numpy()) # this should be converted to the ground truth
-
-                for param in x_model.parameters():
-                    param.requires_grad = False
-                for param in L_model.parameters():
-                    param.requires_grad = False
-                r.requires_grad = True
-
-            
-            # r update
-            # obtaing L_truth here is not necessary
-                r_optimizer.zero_grad()
-                _r = r_proj(r)
-                L_out = -torch.sum(L_model(x_model(_r),_r))
-                L_out.backward()
-                r_optimizer.step()
-            
-        for param in x_model.parameters():
-            param.requires_grad = False
+    for iteration in range(num_iteration):
+        # we need the latest gradient w.r.t. r within x and lambda update
+        # in frames, L_model is fixed
         for param in L_model.parameters():
-            param.requires_grad = True
-            #param.requires_grad = False        
-        r.requires_grad = False
-        # return the ground truth of L given x and r, not defined yet
-        # here we may need a new class inherit from prob
+            param.requires_grad = False
         
-        #_r = r_proj(r)
-        # here is the only function that needs to be defined
-        #L_truth = torch.tensor(prob(x_model(_r).detach().numpy(),_r.detach().numpy()),dtype=torch.float32)
+        L_x = 0
+        L_lambda = 0
+        x_model.zero_grad()
+        lambda_model.zero_grad()
+        for frame in range(num_frame):
+            #for param in x_model.parameters():
+            #    param.requires_grad = False
+
+           
+            r_p = lambda_proj(r)
+            L = L_model(x, r_p)
+            L.backward()
+            grad_lambda_x = r.grad
+
+            delta_x = x_model(grad_lambda_x)
+            _x = x + delta_x
+
+            r.grad.zero_()
+            r_p = lambda_proj(r)
+            L = L_model(_x, r_p)
+            # keep graph for x and lambda update
+            L.backward(retain_graph=True)
+            grad_lambda_lambda = r.grad
+            r.grad.zero_()
+            delta_lambda = lambda_model(grad_lambda_lambda)
+            _r = r + delta_lambda
+
+            r_p = lambda_proj(_r)
+            L_x += L_model(_x, r_p)
+            L_lambda -= L_model(_x, r_p)
+            L_truth = prob(_x.detach().numpy(), r_p.detach().numpy())
+            data_iteration.append(_x, r_p, L_truth)
+            r = _r.clone()
+            x = _x.clone()
+
+        L_lambda.backward(retain_graph=True)
+        L_x.backward()
+        lambda_optimizer.step()
+        x_optimizer.step()
+
         for _ in range(30):
             L_optimizer.zero_grad()
 
-            id_sample = sample(range(len(data_epoch.x_past)),min(50,len(data_epoch.x_past)))
+            id_sample = sample(range(len(data_iteration.x_past)),min(50,len(data_iteration.x_past)))
             
-            x_data = torch.tensor(data_epoch.x_past,dtype=torch.float32)[id_sample]
-            r_data = torch.tensor(data_epoch.lambda_past,dtype=torch.float32)[id_sample]
-            L_truth = torch.tensor(data_epoch.L_past,dtype=torch.float32)[id_sample]
-            #loss_L = loss_MSE(L_model(x_model(_r),_r),L_truth)
-            #loss_L = loss_CE(L_model(x_model(_r),_r),L_truth)
+            x_data = torch.tensor(data_iteration.x_past,dtype=torch.float32)[id_sample]
+            r_data = torch.tensor(data_iteration.lambda_past,dtype=torch.float32)[id_sample]
+            L_truth = torch.tensor(data_iteration.L_past,dtype=torch.float32)[id_sample]
+
             loss_L = loss_MSE(L_model(x_data.view(-1,len_x),r_data.view(-1,len_lambda)),L_truth.view(-1,1))
             loss_L.backward()
             L_optimizer.step()
         
 
-        print("L loss", loss_L.detach().numpy(),'delta',out-x_[0].detach().numpy())
+        print("L loss", loss_L.detach().numpy(),'delta',out-x[0].detach().numpy())
 
         # here we update L model
-    r_final = r_proj(r)    
-    print("lambda:",r_final)
-    print("x:",x_model(r_final).detach().numpy())
 
-
-            
-
-
+    print("lambda:",r_p.detach().numpy())
+    print("x:",x.detach().numpy())
 
 
 
 if __name__ == "__main__":
 
-    np.random.seed(10000)
+    
     L = problem_generator()
     out = L.solve().x
-    #print(out)
-    #what
-    
+   
     class arg_nn:
         hidden_size = 32
         hidden_size_x = 16
     len_x = 5
     len_lambda = 2 * len_x +1
-    num_epochs = 3000
-    num_steps = 5
+    num_iteration = 100
+    num_frame = 20
 
     x_model = x_LSTM(len_x, len_lambda, arg_nn)
-    L_model = L_LSTM(len_x, len_lambda, arg_nn)
+    L_model = L_MLP(len_x, len_lambda, arg_nn)
+    lambda_model = lambda_LSTM(len_lambda, arg_nn)
     x_optimizer = torch.optim.SGD(x_model.parameters(), lr=0.001)
     L_optimizer = torch.optim.SGD(L_model.parameters(), lr=0.001)
+    lambda_optimizer = torch.optim.SGD(lambda_model.parameters(), lr=0.001)
 
-    r = torch.randn(1,len_lambda) # the first input is the batch size, r itself is parameter to be learned
-    r_optimizer = torch.optim.SGD([r], lr=0.001)
-    optimizer = (x_optimizer, L_optimizer, r_optimizer)
+    r = torch.randn(1,len_lambda)
+    x = torch.randn(1,len_x)
+    init_var = (x, r)
 
-    # in this setting, L and Batch are the same. we don't consider a batch
+    model = (x_model, L_model, lambda_model)
+    optimizer = (x_optimizer, L_optimizer, lambda_optimizer)
     
-    x = x_model(r)
-    loss = L_model(x,r)
-
-    L_truth = L(x.detach().numpy(),r.detach().numpy())
-    pass
-
-    
-    my_train(L, x_model, L_model,r, num_epochs, num_steps, optimizer)
+    my_train(L, init_var, model, num_iteration, num_frame, optimizer)
 
     print(out)

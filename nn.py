@@ -1,16 +1,7 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-
-
-# this is the centralized version without a projection layer
-
-
-
-        
-
-
+# this is the centralized version without a projection layer 
 class x_LSTM(nn.Module):
     # feed lambda and output x. Since centralized, we do not consider global consensus terms 
     def __init__(self,len_x,len_lambda,arg_nn) -> None:
@@ -67,10 +58,10 @@ class lambda_LSTM(nn.Module):
         self.net_lambda = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_lambda)
         
-    def forward(self, grad_r):
+    def forward(self, grad_lambda):
         # Reshape lambda to match the input size of the LSTM
-        grad_r = grad_r.view(-1, self.len_lambda)
-        out_temp = self.net_lambda(grad_r)
+        grad_lambda = grad_lambda.view(-1, self.len_lambda)
+        out_temp = self.net_lambda(grad_lambda)
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         delta_lambda = self.net_fc(out_lambda)
