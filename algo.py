@@ -22,7 +22,7 @@ def my_train(prob, init_var ,model, num_iteration, num_frame, optimizer):
     loss_MSE = torch.nn.MSELoss()
     data_iteration = data()
 
-    r.requires_grad = True
+    
 
     # freeze x model and learn L model
     for iteration in range(num_iteration):
@@ -35,46 +35,51 @@ def my_train(prob, init_var ,model, num_iteration, num_frame, optimizer):
         L_lambda = 0
         x_model.zero_grad()
         lambda_model.zero_grad()
+        delta_lambda = torch.zeros(1,len_lambda,requires_grad=True)
+        
         for frame in range(num_frame):
-            #for param in x_model.parameters():
-            #    param.requires_grad = False
-
-           
-            r_p = lambda_proj(r)
-            L = L_model(x, r_p)
-            L.backward()
-            grad_lambda_x = r.grad
-
-            delta_x = x_model(grad_lambda_x)
+            r.requires_grad = True
+            delta_lambda.retain_grad()
+            _r = r + delta_lambda         
+            r_p = lambda_proj(_r)
+            delta_x = x_model(r_p)
             _x = x + delta_x
 
-            r.grad.zero_()
-            r_p = lambda_proj(r)
+            
+            
+
             L = L_model(_x, r_p)
-            # keep graph for x and lambda update
             L.backward(retain_graph=True)
-            grad_lambda_lambda = r.grad
-            r.grad.zero_()
-            delta_lambda = lambda_model(grad_lambda_lambda)
-            _r = r + delta_lambda
+   
+            
+            L_x = L_x + L
+            L_lambda = L_lambda - L
 
-            r_p = lambda_proj(_r)
-            L_x += L_model(_x, r_p)
-            L_lambda -= L_model(_x, r_p)
-            L_truth = prob(_x.detach().numpy(), r_p.detach().numpy())
-            data_iteration.append(_x, r_p, L_truth)
-            r = _r.clone()
-            x = _x.clone()
+            grad_lambda = r.grad + delta_lambda.grad
+            r = _r.detach()
+            delta_lambda = lambda_model(grad_lambda)
+            # cut the gradient flow, make x and r pure data
+            x = _x.detach()
 
+
+            with torch.no_grad():
+                r_p = lambda_proj(r)
+                L_truth = prob(x.numpy(), r_p.numpy())
+                data_iteration.append(x, r_p, L_truth)
+        lambda_optimizer.zero_grad()
         L_lambda.backward(retain_graph=True)
-        L_x.backward()
         lambda_optimizer.step()
-        x_optimizer.step()
+        #x_optimizer.zero_grad()
+        #L_x.backward()
+        #x_optimizer.step()
 
-        for _ in range(30):
+
+        for param in L_model.parameters():
+            param.requires_grad = True
+        for _ in range(1):
             L_optimizer.zero_grad()
 
-            id_sample = sample(range(len(data_iteration.x_past)),min(50,len(data_iteration.x_past)))
+            id_sample = sample(range(len(data_iteration.x_past)),min(10,len(data_iteration.x_past)))
             
             x_data = torch.tensor(data_iteration.x_past,dtype=torch.float32)[id_sample]
             r_data = torch.tensor(data_iteration.lambda_past,dtype=torch.float32)[id_sample]

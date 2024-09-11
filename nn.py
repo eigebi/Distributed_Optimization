@@ -13,12 +13,12 @@ class x_LSTM(nn.Module):
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_x)
 
     # r represents lambda
-    def forward(self, grad_r):
+    def forward(self, r):
         # Reshape x and lambda to match the input size of the LSTM
-        grad_r = grad_r.view(-1, self.len_lambda)
+        r = r.view(-1, self.len_lambda)
         # Pass x through the LSTM
         # the output is a tuple, we only need the first element
-        out_temp = self.net_x(grad_r)
+        out_temp = self.net_x(r)
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         # Pass lambda through the LSTM
@@ -41,6 +41,11 @@ class L_MLP(nn.Module):
         )
         self.net_L_o = nn.Linear(2 * len_lambda + 1, 1)
 
+        # Initialize the weights of the linear layers
+        nn.init.xavier_uniform_(self.net_fg[0].weight)
+        nn.init.xavier_uniform_(self.net_fg[2].weight)
+        nn.init.xavier_uniform_(self.net_fg[4].weight)
+        nn.init.xavier_uniform_(self.net_L_o.weight)
 
     def forward(self, x, r):
         # Reshape x and lambda to match the input size of the LSTM
