@@ -35,9 +35,83 @@ def my_train(prob, init_var ,model, num_iteration, num_frame, optimizer):
         L_lambda = 0
         x_model.zero_grad()
         lambda_model.zero_grad()
-        delta_lambda = torch.zeros(1,len_lambda,requires_grad=True)
+        #delta_lambda = torch.zeros(1,len_lambda,requires_grad=True)
         
         for frame in range(num_frame):
+            # obtain x loss, lambda_model was not involved in this part
+            for param in x_model.parameters():
+                param.requires_grad = True
+            for param in lambda_model.parameters():
+                param.requires_grad = False
+            # here r should be detached
+            r_p = lambda_proj(r)
+            _x = x + x_model(r_p)
+            L = L_model(_x, r_p)
+            #L_x = L_x + L
+            # derive the gradient w.r.t. r
+            x_optimizer.zero_grad()
+            L.backward()
+            x_optimizer.step()
+
+            for param in x_model.parameters():
+                param.requires_grad = True
+            r.requires_grad = True
+            r_p = lambda_proj(r)
+            _x = x + x_model(r_p)
+            L = L_model(_x, r_p)
+            L.backward()
+            grad_lambda = r.grad
+
+            # update r
+            # current r
+            r = r.detach()
+            x = _x.detach()
+            for param in x_model.parameters():
+                param.requires_grad = False
+            for param in lambda_model.parameters():
+                param.requires_grad = True
+            
+            # derive new r based on current r and current gradient w.r.t. r
+            delta_lambda = lambda_model(grad_lambda)
+            _r = r + delta_lambda
+            #_r.retain_grad()
+            
+            lambda_optimizer.zero_grad()
+            r_p = lambda_proj(_r)
+            _x = x + x_model(r_p)
+            L = -L_model(_x, r_p)
+            
+            L.backward()
+            lambda_optimizer.step()
+
+            for param in lambda_model.parameters():
+                param.requires_grad = False
+            delta_lambda = lambda_model(grad_lambda)
+            _r = r + delta_lambda
+
+            r_p = lambda_proj(_r)
+            _x = x + x_model(r_p)
+            x = _x.detach()
+            r = _r.detach()
+
+            
+
+            '''
+            # mind the minus sign
+            grad_lambda = -_r.grad
+            
+            # prepare x and r for the next frame
+
+
+
+            
+
+
+
+
+
+
+
             r.requires_grad = True
             delta_lambda.retain_grad()
             _r = r + delta_lambda         
@@ -49,11 +123,12 @@ def my_train(prob, init_var ,model, num_iteration, num_frame, optimizer):
             
 
             L = L_model(_x, r_p)
-            L.backward(retain_graph=True)
-   
-            
             L_x = L_x + L
-            L_lambda = L_lambda - L
+            # here the loss is for x only
+            L.backward(retain_graph=True)
+            
+
+            #L_lambda = L_lambda - L
 
             grad_lambda = r.grad + delta_lambda.grad
             r = _r.detach()
@@ -72,6 +147,7 @@ def my_train(prob, init_var ,model, num_iteration, num_frame, optimizer):
         #x_optimizer.zero_grad()
         #L_x.backward()
         #x_optimizer.step()
+        '''
 
 
         for param in L_model.parameters():
