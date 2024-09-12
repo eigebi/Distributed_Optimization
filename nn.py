@@ -23,6 +23,8 @@ class x_LSTM(nn.Module):
         out_hidden = out_temp[1]
         # Pass lambda through the LSTM
         delta_x = self.net_fc(out_lambda)
+        # restrict the output of the LSTM to be in the range of [-1,1]
+        #delta_x = torch.tanh(delta_x)
         return delta_x
 
 class L_MLP(nn.Module):
@@ -70,6 +72,7 @@ class lambda_LSTM(nn.Module):
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         delta_lambda = self.net_fc(out_lambda)
+        delta_lambda = 0.1*torch.tanh(delta_lambda)
         return delta_lambda
     
 def lambda_proj(r):
