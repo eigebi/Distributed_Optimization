@@ -49,14 +49,14 @@ class problem_generator(prob):
         num_o= 5
         self.num_o = num_o
         f_s = []
-        jac = []
+        self.jac = []
         for _ in range(num_o):
             temp = np.random.randn(3,3)
             temp = temp @ temp.T
             temp2 = np.random.randn(3)*25
 
             f_s.append(lambda x: x @ temp @ x + temp2 @ x)
-            jac.append(lambda x: 2*temp @ x + temp2)
+            self.jac.append(lambda x: 2*temp @ x + temp2)
 
         for f in f_s:
             var_select = np.random.choice(num_o,3,replace=False)
@@ -90,6 +90,19 @@ class problem_generator(prob):
         constraint = LinearConstraint(A,0,self.u_b)
         res = minimize(f,x0,constraints=constraint)
         return res
+    
+    def gradient_x(self,x,r):
+        grad_x = np.zeros(self.num_o,dtype=np.float32)
+        for i in range(self.num_o):
+            grad_x[self.obj[i].varID] += self.jac[i](x[0,self.obj[i].varID])
+        grad_x = grad_x + r[0,:self.num_o] - r[0,self.num_o:-1] +r[0,-1]
+        return grad_x.reshape(1,-1)
+    
+    def gradient_lambda(self,x):
+        grad_lambda = np.zeros(2*self.num_o+1,dtype=np.float32)
+        grad_lambda = np.array([self.con[k](x[0,self.con[k].varID]) for k in range(2*self.num_o+1)])
+        return grad_lambda.reshape(1,-1)
+            
     
 
 
