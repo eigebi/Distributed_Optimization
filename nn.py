@@ -36,9 +36,9 @@ class L_MLP(nn.Module):
         # let the nn to learn the representation of a obj func and len-lambda constraint functions
         self.net_fg = nn.Sequential(
             nn.Linear(len_x, arg_nn.hidden_size_x),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(arg_nn.hidden_size_x, arg_nn.hidden_size_x),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(arg_nn.hidden_size_x, len_lambda+1)
         )
         self.net_L_o = nn.Linear(2 * len_lambda + 1, 1)
