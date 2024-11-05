@@ -162,6 +162,7 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
     L_train_result = []
     Loss_train_result = []
     L_truth_result = []
+    obj_train_result = []
     
 
     # freeze x model and learn L model
@@ -185,6 +186,8 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
                 #L = prob(_x, r_p)
                 # store one piece of data after some variable is updated
                 L_truth = prob(_x.detach().numpy(), r_p.detach().numpy())
+                obj_truth = prob.objective(_x.detach().numpy())
+                obj_train_result.append(obj_truth)
                 
                 #L_train_result.append(L.detach().numpy())
                 L_truth_result.append(L_truth)
@@ -293,6 +296,7 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
     np.save('L_train.npy',np.array(L_train_result))
     np.save('Loss_train.npy',np.array(Loss_train_result))
     np.save('L_truth.npy',np.array(L_truth_result))
+    np.save('obj_train.npy',np.array(obj_train_result))
 
 
 

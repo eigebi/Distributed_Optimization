@@ -102,6 +102,9 @@ class problem_generator(prob):
         grad_lambda = np.zeros(2*self.num_o+1,dtype=np.float32)
         grad_lambda = np.array([self.con[k](x[0,self.con[k].varID]) for k in range(2*self.num_o+1)])
         return grad_lambda.reshape(1,-1)
+    
+    def objective(self, x):
+        return np.sum([self.obj[k](x[0,self.obj[k].varID]) for k in range(self.num_o)])
             
     
 
