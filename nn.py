@@ -4,13 +4,15 @@ import torch.nn as nn
 # this is the centralized version without a projection layer 
 class x_LSTM(nn.Module):
     # feed lambda and output x. Since centralized, we do not consider global consensus terms 
-    def __init__(self,len_x,len_lambda,arg_nn) -> None:
+    def __init__(self,len_x,len_lambda,arg_nn,bounded=False) -> None:
         super(x_LSTM, self).__init__()
         self.len_x = len_x
         self.len_lambda = len_lambda
         self.arg_nn = arg_nn
+        self.bounded = bounded
         self.net_x = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_x)
+        self.net_tanh = nn.Tanh()
 
     # r represents lambda
     def forward(self, r):
@@ -22,10 +24,11 @@ class x_LSTM(nn.Module):
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         # Pass lambda through the LSTM
-        delta_x = self.net_fc(out_lambda)
-        # restrict the output of the LSTM to be in the range of [-1,1]
-        #delta_x = torch.tanh(delta_x)
-        return delta_x
+        out_x = self.net_fc(out_lambda)
+        if self.bounded:
+            # map from [-1,1] to [lb,ub]
+            out_x = (self.net_tanh(out_x) + 1) * (self.arg_nn.u_b-self.arg_nn.l_b)/2 + self.arg_nn.l_b
+        return out_x
 
 class L_MLP(nn.Module):
     def __init__(self,len_x,len_lambda,arg_nn) -> None:
@@ -72,7 +75,7 @@ class lambda_LSTM(nn.Module):
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         delta_lambda = self.net_fc(out_lambda)
-        delta_lambda = 0.1*torch.tanh(delta_lambda)
+        #delta_lambda = 0.1*torch.tanh(delta_lambda)
         return delta_lambda
     
 def lambda_proj(r):
