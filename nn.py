@@ -25,6 +25,7 @@ class x_LSTM(nn.Module):
         out_hidden = out_temp[1]
         # Pass lambda through the LSTM
         out_x = self.net_fc(out_lambda)
+        out_x = 15*torch.tanh(out_x)
         if self.bounded:
             # map from [-1,1] to [lb,ub]
             out_x = (self.net_tanh(out_x) + 1) * (self.arg_nn.u_b-self.arg_nn.l_b)/2 + self.arg_nn.l_b
@@ -75,7 +76,7 @@ class lambda_LSTM(nn.Module):
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         delta_lambda = self.net_fc(out_lambda)
-        #delta_lambda = 0.1*torch.tanh(delta_lambda)
+        delta_lambda = 0.1*torch.tanh(delta_lambda)
         return delta_lambda
     
 def lambda_proj(r):
