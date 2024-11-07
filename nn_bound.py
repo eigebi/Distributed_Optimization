@@ -10,6 +10,7 @@ class x_LSTM(nn.Module):
         self.len_lambda = len_lambda
         self.arg_nn = arg_nn
         self.bounded = bounded
+
         self.net_x = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_x)
         self.net_tanh = nn.Tanh()
@@ -25,10 +26,12 @@ class x_LSTM(nn.Module):
         out_hidden = out_temp[1]
         # Pass lambda through the LSTM
         out_x = self.net_fc(out_lambda)
-        out_x = 15*torch.tanh(out_x)
+        #out_x = 15*torch.tanh(out_x)
         if self.bounded:
             # map from [-1,1] to [lb,ub]
-            out_x = (self.net_tanh(out_x) + 1) * (self.arg_nn.u_b-self.arg_nn.l_b)/2 + self.arg_nn.l_b
+            u_b = torch.tensor(self.arg_nn.u_b[:-1],dtype=torch.float32)
+            l_b = 0
+            out_x = (self.net_tanh(out_x) + 1) * (u_b-l_b)/2 + l_b
         return out_x
 
 class L_MLP(nn.Module):

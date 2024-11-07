@@ -44,15 +44,16 @@ class prob:
 
 
 class problem_generator(prob):
-    def __init__(self):
+    def __init__(self, bounded = False):
         super(problem_generator,self).__init__()
         num_o= 5
         self.num_o = num_o
+        self.bounded = bounded
         f_s = []
         self.jac = []
         for _ in range(num_o):
             temp = np.random.randn(3,3)
-            temp = temp @ temp.T
+            #temp = temp @ temp.T
             temp2 = np.random.randn(3)*25
 
             f_s.append(lambda x: x @ temp @ x + temp2 @ x)
@@ -63,14 +64,15 @@ class problem_generator(prob):
             self.obj.append(BaseProblem(f,var_select))
         u_b = np.zeros(num_o+1)
         for i in range(num_o): 
-            u_bound = np.random.randint(1,16)
+            u_bound = np.random.randint(1,5)#16
             self.con.append(BaseProblem(lambda x: x - u_bound ,[i]))
             u_b[i]=u_bound
         for i in range(num_o):
             self.con.append(BaseProblem(lambda x: -x ,[i]))
-        u_b[-1] = np.array([30],dtype=np.float32)
+        u_b[-1] = np.array([5],dtype=np.float32)
         self.con.append(BaseProblem(lambda x: np.array([np.sum(x)-u_b[-1]]) ,np.arange(num_o)))
         self.u_b = u_b
+        
         
         for i in range(2*num_o+1):
             self.r.append(BaseProblem(lambda x: x , [i],is_min=False))
@@ -78,8 +80,12 @@ class problem_generator(prob):
     def __call__(self,X,R):
         batch_size = X.shape[0]
         result = np.zeros(batch_size)
-        for i in range(batch_size):
-            result[i] = np.sum([self.obj[k](X[i,self.obj[k].varID]) for k in range(self.num_o)]) + np.sum(np.multiply(R[i,:],np.array([np.array(self.con[k](X[i,self.con[k].varID])) for k in range(2*self.num_o+1)])[0]))
+        if self.bounded:
+            for i in range(batch_size):
+                result[i] = np.sum([self.obj[k](X[i,self.obj[k].varID]) for k in range(self.num_o)]) + np.sum(np.multiply(R[i,:],np.array([np.array(self.con[-1](X[i,self.con[-1].varID]))])[0]))
+        else:
+            for i in range(batch_size):
+                result[i] = np.sum([self.obj[k](X[i,self.obj[k].varID]) for k in range(self.num_o)]) + np.sum(np.multiply(R[i,:],np.array([np.array(self.con[k](X[i,self.con[k].varID])) for k in range(2*self.num_o+1)])[0]))
         return result.reshape(-1,1)
     
     def solve(self):
@@ -92,20 +98,29 @@ class problem_generator(prob):
         return res
     
     def gradient_x(self,x,r):
-        grad_x = np.zeros(self.num_o,dtype=np.float32)
-        for i in range(self.num_o):
-            grad_x[self.obj[i].varID] += self.jac[i](x[0,self.obj[i].varID])
-        grad_x = grad_x + r[0,:self.num_o] - r[0,self.num_o:-1] +r[0,-1]
-        return grad_x.reshape(1,-1)
+        grad_x = np.zeros([x.shape[0],self.num_o],dtype=np.float32)
+        for k in range(x.shape[0]):
+            for i in range(self.num_o):
+                grad_x[k,self.obj[i].varID] += self.jac[i](x[k,self.obj[i].varID])
+            if self.bounded:
+                grad_x[k,:] = grad_x[k,:] + r[k,-1]
+            else:
+                grad_x[k,:] = grad_x[k,:] + r[k,:self.num_o] - r[k,self.num_o:-1] + r[k,-1]
+        return grad_x
     
     def gradient_lambda(self,x):
         grad_lambda = np.zeros(2*self.num_o+1,dtype=np.float32)
         grad_lambda = np.array([self.con[k](x[0,self.con[k].varID]) for k in range(2*self.num_o+1)])
-        return grad_lambda.reshape(1,-1)
+        if self.bounded:
+            return grad_lambda[-1].reshape(1,-1)
+        else:
+            return grad_lambda.reshape(1,-1)
     
     def objective(self, x):
         return np.sum([self.obj[k](x[0,self.obj[k].varID]) for k in range(self.num_o)])
-            
+    
+    def check_con(self,x):
+        return np.array([self.con[k](x[0,self.con[k].varID]) for k in range(2*self.num_o+1)])
     
 
 

@@ -19,13 +19,13 @@ class data:
 
                 
 class r_data:
-        def __init__(self,size=5000):
+        def __init__(self,size=50000):
             self.r_p = []
             self.size = size
         def reset(self):
             self.r_p = []
             self.L_past = []
         def append(self, r_p):
-            self.r_p(r_p.detach().numpy())
-            if len(self.lambda_past)>self.size:
+            self.r_p.append(r_p.detach().numpy())
+            if len(self.r_p)>self.size:
                 self.r_p.pop(0)
