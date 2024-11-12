@@ -63,9 +63,9 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
             # inner update bring N steps forward
             # inner update, from one given initial lambda
 
-            for _ in range(5):
+            for _ in range(1):
                 reserved_r = r.detach()
-                for _ in range(5):
+                for _ in range(1):
                     r = r.detach()
                     
                     grad_lambda = derive_grad_lambda(prob, x_model, r)
@@ -113,7 +113,7 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
                 param.requires_grad = True
             for param in lambda_model.parameters():
                 param.requires_grad = False
-            for _ in range(50):
+            for _ in range(5):
                 sampled_id = sample(range(len(x_data_iteration.r_p)),min(10,len(x_data_iteration.r_p)))
                 r_p_data = torch.tensor(x_data_iteration.r_p,dtype=torch.float32)[sampled_id]
                 _x = x_model(r_p_data)
@@ -132,8 +132,8 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
 
     # end of iterations
     
-    np.save('L_truth.npy',np.array(L_truth_result))
-    np.save('obj_train.npy',np.array(obj_truth_result))
+    np.save('L_truth_non_convex.npy',np.array(L_truth_result))
+    np.save('obj_train_non_convex.npy',np.array(obj_truth_result))
 
 
 
@@ -152,8 +152,8 @@ if __name__ == "__main__":
     len_x = L.num_o
     #len_lambda = 2 * len_x +1
     len_lambda = 1
-    num_iteration = 10
-    num_frame = 10
+    num_iteration = 100
+    num_frame = 20
 
     x_model = x_LSTM(len_x, len_lambda, arg_nn,bounded = True)
     lambda_model = lambda_LSTM(len_lambda, arg_nn)
