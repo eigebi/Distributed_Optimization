@@ -2,3 +2,6 @@ This repository contains a very initial version of distributed optimization algo
 
 09/09/2024
 Basic framework and test completed.
+
+09/11/2024
+Basic algorithm verified.
