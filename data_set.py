@@ -19,7 +19,7 @@ class data:
 
                 
 class r_data:
-        def __init__(self,size=500):
+        def __init__(self,size=5):
             self.r_p = []
             self.size = size
         def reset(self):

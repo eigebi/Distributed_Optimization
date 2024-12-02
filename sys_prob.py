@@ -108,6 +108,22 @@ class problem_generator(prob):
                 grad_x[k,:] = grad_x[k,:] + r[k,:self.num_o] - r[k,self.num_o:-1] + r[k,-1]
         return grad_x
     
+    def gradient_x_penalty(self,x,r):
+        grad_x = np.zeros([x.shape[0],self.num_o],dtype=np.float32)
+        for k in range(x.shape[0]):
+            g = np.sum(x[k,:])
+            penalty = 0
+            if g>0:
+                penalty = 5 * g
+            
+            for i in range(self.num_o):
+                grad_x[k,self.obj[i].varID] += self.jac[i](x[k,self.obj[i].varID])
+            if self.bounded:
+                grad_x[k,:] = grad_x[k,:] + r[k,-1] + penalty
+            else:
+                grad_x[k,:] = grad_x[k,:] + r[k,:self.num_o] - r[k,self.num_o:-1] + r[k,-1]
+        return grad_x
+    
     def gradient_lambda(self,x):
         grad_lambda = np.zeros(2*self.num_o+1,dtype=np.float32)
         grad_lambda = np.array([self.con[k](x[0,self.con[k].varID]) for k in range(2*self.num_o+1)])
