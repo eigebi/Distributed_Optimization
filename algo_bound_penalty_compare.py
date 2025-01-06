@@ -50,7 +50,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
     for epoch in range(num_epoch):
         
         # randomly initialize x,r and hidden states
-        init_x = torch.randn(len(problems),len_x)
+        init_x = torch.zeros(len(problems),len_x)
         init_r = torch.randn(len(problems),len_lambda)
 
         
@@ -129,7 +129,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
 
                 for iter in range(num_iteration):
 
-                    #x = reserved_x[n_p].view(1,-1).detach()
+                    x = reserved_x[n_p].view(1,-1).detach()
             
                     sampled_id = sample(range(len(x_data_iteration[n_p].r_p)),min(5,len(x_data_iteration[n_p].r_p)))
                     r_p_data = torch.tensor(x_data_iteration[n_p].r_p,dtype=torch.float32)[sampled_id]
