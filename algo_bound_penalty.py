@@ -65,7 +65,7 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
 
             for _ in range(1):
                 reserved_r = r.detach()
-                for _ in range(1):
+                for _ in range(5):
                     r = r.detach()
                     
                     grad_lambda = derive_grad_lambda(prob, x_model, r)

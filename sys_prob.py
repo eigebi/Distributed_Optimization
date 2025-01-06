@@ -53,7 +53,7 @@ class problem_generator(prob):
         self.jac = []
         for _ in range(num_o):
             temp = np.random.randn(3,3)
-            #temp = temp @ temp.T
+            temp = temp @ temp.T
             temp2 = np.random.randn(3)*25
 
             f_s.append(lambda x: x @ temp @ x + temp2 @ x)
