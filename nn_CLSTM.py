@@ -12,15 +12,22 @@ class x_LSTM(nn.Module):
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_x)
 
     # r represents lambda
-    def forward(self, dx):
+    def forward(self, dx, h_s = None):
         # Reshape x and lambda to match the input size of the LSTM
         dx = dx.view(-1, self.len_x)
-        out_temp = self.net_x(dx)
+        if h_s is None:
+            out_temp = self.net_x(dx)
+        else:
+            out_temp = self.net_x(dx, h_s)
         out_x = out_temp[0]
         out_hidden = out_temp[1]
         
         out_x = self.net_fc(out_x)
         return out_x
+    
+    def init_hidden(self):
+        return (torch.zeros(1, 1, self.arg_nn.hidden_size),
+                torch.zeros(1, 1, self.arg_nn.hidden_size))
 
     
 class lambda_LSTM(nn.Module):
@@ -31,10 +38,13 @@ class lambda_LSTM(nn.Module):
         self.net_lambda = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_lambda)
         
-    def forward(self, grad_lambda):
+    def forward(self, grad_lambda, h_s = None):
         # Reshape lambda to match the input size of the LSTM
         grad_lambda = grad_lambda.view(-1, self.len_lambda)
-        out_temp = self.net_lambda(grad_lambda)
+        if h_s is None: 
+            out_temp = self.net_lambda(grad_lambda)
+        else:
+            out_temp = self.net_lambda(grad_lambda, h_s)
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         delta_lambda = self.net_fc(out_lambda)
