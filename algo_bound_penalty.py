@@ -113,8 +113,8 @@ def my_train_true_gradient(prob, init_var ,model, num_iteration, num_frame, opti
                 param.requires_grad = True
             for param in lambda_model.parameters():
                 param.requires_grad = False
-            for _ in range(1):
-                sampled_id = sample(range(len(x_data_iteration.r_p)),min(5,len(x_data_iteration.r_p)))
+            for _ in range(10):
+                sampled_id = sample(range(len(x_data_iteration.r_p)),min(20,len(x_data_iteration.r_p)))
                 r_p_data = torch.tensor(x_data_iteration.r_p,dtype=torch.float32)[sampled_id]
                 _x = x_model(r_p_data)
                 grad_x = torch.tensor(prob.gradient_x_penalty(_x.detach().numpy(), r_p_data.detach().numpy()), dtype=torch.float32)

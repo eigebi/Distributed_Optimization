@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.optimize import LinearConstraint
 import scipy
-np.random.seed(10086)
+np.random.seed(1008)
 
 #test problem is simple and do not contains grouping or partitioning
 
@@ -16,6 +16,7 @@ class BaseProblem:
         self.gamma = np.random.randn(len(varID))
         self.is_min = is_min
         self.x_next = []
+        
     def __call__(self, x):
         return self.func(x)
     
@@ -51,10 +52,17 @@ class problem_generator(prob):
         self.bounded = bounded
         f_s = []
         self.jac = []
+        # record the feature of the problem
+        self.feature = None
+
         for _ in range(num_o):
             temp = np.random.randn(3,3)
             temp = temp @ temp.T
-            temp2 = np.random.randn(3)*25
+            temp2 = -np.random.randn(3)*25
+            if self.feature is None:
+                self.feature = np.concatenate((temp.flatten(),temp2))
+            else:
+                self.feature = np.concatenate((self.feature,temp.flatten(),temp2))
 
             f_s.append(lambda x: x @ temp @ x + temp2 @ x+20)
             self.jac.append(lambda x: 2*temp @ x + temp2)
@@ -64,12 +72,12 @@ class problem_generator(prob):
             self.obj.append(BaseProblem(f,var_select))
         u_b = np.zeros(num_o+1)
         for i in range(num_o): 
-            u_bound = np.random.randint(1,5)#16
+            u_bound = np.random.randint(1,16)#16
             self.con.append(BaseProblem(lambda x: x - u_bound ,[i]))
             u_b[i]=u_bound
         for i in range(num_o):
             self.con.append(BaseProblem(lambda x: -x ,[i]))
-        u_b[-1] = np.array([5],dtype=np.float32)
+        u_b[-1] = np.array([5],dtype=np.float32) # 5
         self.con.append(BaseProblem(lambda x: np.array([np.sum(x)-u_b[-1]]) ,np.arange(num_o)))
         self.u_b = u_b
         

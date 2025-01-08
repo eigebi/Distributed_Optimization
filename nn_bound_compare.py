@@ -4,24 +4,31 @@ import torch.nn as nn
 # this is the centralized version without a projection layer 
 class x_LSTM(nn.Module):
     # feed lambda and output x. Since centralized, we do not consider global consensus terms 
-    def __init__(self,len_x,len_lambda,arg_nn,bounded=False) -> None:
+    def __init__(self,len_x,len_lambda, len_feature, arg_nn, bounded=False) -> None:
         super(x_LSTM, self).__init__()
         self.len_x = len_x
         self.len_lambda = len_lambda
+        self.len_feature = len_feature
         self.arg_nn = arg_nn
         self.bounded = bounded
-
-        self.net_x = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size)
+        # to feed information of primal problem, we take grad_x as input
+        self.net_x = nn.LSTM(input_size=len_lambda+len_feature, hidden_size=arg_nn.hidden_size)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_x)
         self.net_tanh = nn.Tanh()
 
     # r represents lambda
-    def forward(self, r):
+    def forward(self, r, feature, h_s = None):
         # Reshape x and lambda to match the input size of the LSTM
         r = r.view(-1, self.len_lambda)
+        feature = feature.view(-1, self.len_feature)
+        # concatenate x and lambda
+        r_f = torch.cat((r,feature),dim=1)
         # Pass x through the LSTM
         # the output is a tuple, we only need the first element
-        out_temp = self.net_x(r)
+        if h_s is None:
+            out_temp = self.net_x(r_f)
+        else:
+            out_temp = self.net_x(r_f, h_s)
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         # Pass lambda through the LSTM
@@ -33,6 +40,55 @@ class x_LSTM(nn.Module):
             l_b = 0
             out_x = (self.net_tanh(out_x) + 1) * (u_b-l_b)/2 + l_b
         return out_x
+
+
+class x_MLP(nn.Module):
+    # feed lambda and output x. Since centralized, we do not consider global consensus terms 
+    def __init__(self,len_x,len_lambda, len_feature, arg_nn, bounded=False) -> None:
+        super(x_MLP, self).__init__()
+        self.len_x = len_x
+        self.len_lambda = len_lambda
+        self.len_feature = len_feature
+        self.arg_nn = arg_nn
+        self.bounded = bounded
+        # to feed information of primal problem, we take grad_x as input
+        self.net_feature = nn.Sequential(
+            nn.Linear(len_feature, arg_nn.hidden_size),
+            nn.ReLU(),
+            nn.Linear(arg_nn.hidden_size, arg_nn.hidden_size),
+            nn.ReLU())
+            
+        self.net_fc = nn.Sequential(
+            nn.Linear(arg_nn.hidden_size+len_lambda, arg_nn.hidden_size),
+            nn.ReLU(),
+            nn.Linear(arg_nn.hidden_size, arg_nn.hidden_size),
+            nn.ReLU(),
+            nn.Linear(arg_nn.hidden_size, len_x))
+        self.net_tanh = nn.Tanh()
+        
+
+    # r represents lambda
+    def forward(self, r, feature):
+        # Reshape x and lambda to match the input size of the LSTM
+        r = r.view(-1, self.len_lambda)
+        feature = feature.view(-1, self.len_feature)
+
+        temp_feature = self.net_feature(feature)
+
+
+        # concatenate x and lambda
+        r_f = torch.cat((r,temp_feature),dim=1)
+        # Pass x through the LSTM
+        # the output is a tuple, we only need the first element
+        out_x = self.net_fc(r_f)
+        
+        if self.bounded:
+            # map from [-1,1] to [lb,ub]
+            u_b = torch.tensor(self.arg_nn.u_b[:-1],dtype=torch.float32)
+            l_b = 0
+            out_x = (self.net_tanh(out_x) + 1) * (u_b-l_b)/2 + l_b
+        return out_x
+
 
 class L_MLP(nn.Module):
     def __init__(self,len_x,len_lambda,arg_nn) -> None:
@@ -72,14 +128,17 @@ class lambda_LSTM(nn.Module):
         self.net_lambda = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_lambda)
         
-    def forward(self, grad_lambda):
+    def forward(self, grad_lambda, h_s = None):
         # Reshape lambda to match the input size of the LSTM
         grad_lambda = grad_lambda.view(-1, self.len_lambda)
-        out_temp = self.net_lambda(grad_lambda)
+        if h_s is None: 
+            out_temp = self.net_lambda(grad_lambda)
+        else:
+            out_temp = self.net_lambda(grad_lambda, h_s)
         out_lambda = out_temp[0]
         out_hidden = out_temp[1]
         delta_lambda = self.net_fc(out_lambda)
-        delta_lambda = 1*torch.tanh(delta_lambda)
+        #delta_lambda = 1*torch.tanh(delta_lambda)
         return delta_lambda
     
 def lambda_proj(r):

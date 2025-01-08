@@ -14,14 +14,14 @@ torch.random.manual_seed(10000)
 
 
 
-def derive_grad_lambda(prob, x_model, r, x):
+def derive_grad_lambda(prob, x_model, r):
     r.requires_grad = True
     r_p = lambda_proj(r)
     _x = x_model(r_p, torch.tensor(prob.feature, dtype=torch.float32))
 
     partial_grad_x = torch.tensor(prob.gradient_x(_x.detach().numpy(), r_p.detach().numpy()),dtype=torch.float32)
     partial_grad_lambda_p = torch.tensor(prob.gradient_lambda(_x.detach().numpy()),dtype=torch.float32)
-    r_p.backward(partial_grad_lambda_p,retain_graph=True)
+    r_p.backward(partial_grad_lambda_p, retain_graph=True)
     _x.backward(partial_grad_x)
     grad_lambda = r.grad
   
@@ -56,7 +56,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
 
         
         hidden_lambda = (torch.randn(1, arg_nn.hidden_size), torch.randn(1, arg_nn.hidden_size))
-        hidden_x = (torch.randn(1, arg_nn.hidden_size), torch.randn(1, arg_nn.hidden_size))
+        #hidden_x = (torch.randn(1, arg_nn.hidden_size), torch.randn(1, arg_nn.hidden_size))
 
         for param in x_model.parameters():
             param.requires_grad = True
@@ -70,7 +70,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
 
 
         for frame in range(num_frame):
-            r_path = 0
+            
             
         
             for n_p, prob in enumerate(problems):
@@ -79,53 +79,42 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
 
                     r = reserved_r[n_p].view(1,-1).detach()
                     x = reserved_x[n_p].view(1,-1).detach()
-                    
-                    for _ in range(10):
-                        r_path += torch.randn(1,len_lambda)*5
-                        _x = x_model(r, torch.tensor(problems[n_p].feature,dtype=torch.float32), h_s=hidden_x)
-                        #delta_x = x_model(r,grad_x,h_s=hidden_x)
-                        #_x = x + delta_x
-                        hidden_x = None
-                        grad_x = torch.tensor(prob.gradient_x_penalty(_x.detach().numpy(), r_path.detach().numpy()), dtype=torch.float32)
-                        _x.backward(grad_x, retain_graph=True)
-                        x = _x.detach()
-                        reserved_x[n_p] = x.view(-1)
-
-
-
-
-
 
                     x_copy.load_state_dict(x_model.state_dict())
-                    grad_lambda = derive_grad_lambda(prob, x_copy, r, x)
+                    grad_lambda = derive_grad_lambda(prob, x_copy, r)
                     delta_lambda = lambda_model(grad_lambda, h_s=hidden_lambda)
                     hidden_lambda = None
                     r = r.detach()
                     _r = r + delta_lambda
                     r = _r.detach()
-                    grad_lambda = derive_grad_lambda(prob, x_copy, r, x)
+                    grad_lambda = derive_grad_lambda(prob, x_copy, r)
                     _r.backward(-grad_lambda, retain_graph=True)
-                    # above is update for lambda only
                     reserved_r[n_p] = r.view(-1)
+                    x_data_iteration[n_p].append(lambda_proj(r+np.random.randn()*0.1))
                 
+                _x = x_copy(r, torch.tensor(prob.feature, dtype=torch.float32))
+                reserved_x[n_p] = _x.view(-1).detach()
 
-                    # to be modified, add problem idx
-                    # record the lambda trajectory
-                    #x_data_iteration[n_p].append(lambda_proj(r))
-
-                    
-                    #r_p = lambda_proj(r)
-                    #_x = x_model(r_p)
-                #print("lambda: ", r_p.detach().numpy())
-                    #x = reserved_x[n_p].view(1,-1).detach()
-                    
-                    
-
-                    
             lambda_optimizer.step()
             lambda_optimizer.zero_grad()
-            x_optimizer.step()
-            x_optimizer.zero_grad()
+            
+            
+            
+
+            for iter in range(50):
+                for n_p, prob in enumerate(problems):
+                    sampled_id = sample(range(len(x_data_iteration[n_p].r_p)),min(5,len(x_data_iteration[n_p].r_p)))
+                    r_p_data = torch.tensor(x_data_iteration[n_p].r_p,dtype=torch.float32)[sampled_id]
+                    feature_data = torch.tensor(prob.feature, dtype=torch.float32).repeat(r_p_data.size(0), 1)
+                    _x = x_model(r_p_data, feature_data)
+                    grad_x = torch.tensor(prob.gradient_x(_x.detach().numpy(), r_p_data.detach().numpy()), dtype=torch.float32)
+                    _x.backward(grad_x, retain_graph=True)
+
+                
+                x_optimizer.step()
+                x_optimizer.zero_grad()
+
+
             precision  = 0
             for n_p, prob in enumerate(problems):
                 r_p = lambda_proj(reserved_r[n_p].view(1,-1))
@@ -174,7 +163,7 @@ if __name__ == "__main__":
     obj = result.fun
 
 
-    problems = [problem_generator(bounded=True) for _ in range(20)]
+    problems = [problem_generator(bounded=True) for _ in range(1)]
    
     class arg_nn:
         hidden_size = 32
@@ -188,8 +177,8 @@ if __name__ == "__main__":
     num_iteration = 20
     num_frame = 200//20
 
-    x_model = x_LSTM(len_x, len_lambda, problems[0].feature.shape[0], arg_nn,bounded = True)
-    x_copy = x_LSTM(len_x, len_lambda, problems[0].feature.shape[0], arg_nn,bounded = True)
+    x_model = x_MLP(len_x, len_lambda, problems[0].feature.shape[0], arg_nn,bounded = True)
+    x_copy = x_MLP(len_x, len_lambda, problems[0].feature.shape[0], arg_nn,bounded = True)
     x_copy.load_state_dict(x_model.state_dict())
     lambda_model = lambda_LSTM(len_lambda, arg_nn)
     x_optimizer = torch.optim.Adam(x_model.parameters(), lr=0.001)
