@@ -174,7 +174,7 @@ if __name__ == "__main__":
     obj = result.fun
 
 
-    problems = [problem_generator(bounded=True) for _ in range(20)]
+    problems = [problem_generator(bounded=True) for _ in range(1)]
    
     class arg_nn:
         hidden_size = 32

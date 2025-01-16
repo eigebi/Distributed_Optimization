@@ -1,7 +1,7 @@
 import torch
 import numpy as np
-from nn_CLSTM import *
-from sys_prob_CLSTM import problem_generator
+from nn_CLSTM_TL import *
+from sys_prob_TL import problem_generator
 from random import sample
 from matplotlib import pyplot as plt
 
@@ -44,6 +44,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
     Loss_train_result = []
     L_truth_result = []
     obj_truth_result = []
+    acc = []
     for n_p, prob in enumerate(problems):
         obj_truth_result.append(prob.objective(prob.solve().x.reshape(1,-1)))
     
@@ -113,6 +114,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
                 x = reserved_x[n_p].view(1,-1)
                 precision += 1 - np.abs(prob.objective(x.detach().numpy())-obj_truth_result[n_p])/np.abs(obj_truth_result[n_p])
             precision /= len(problems)
+            acc.append(precision)
             print("precision: ", precision)
             #print("delta: ",  [problems[i].objective(reserved_x[i].view(1,-1).detach().numpy()) for i in range(len(problems))], obj_truth_result)
             # r_p = lambda_proj(r)
@@ -125,7 +127,8 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
                     
         #r = latest_r
         #x = latest_x
-
+        # Save models and accuracy array
+       
         # print result each iteration
         print("lambda:",r_p.detach().numpy())
         print("x:",x.detach().numpy())
@@ -134,7 +137,9 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
         print("constraint function: ", prob.check_con(_x.detach().numpy())[-1])
         print("opt obj: ", prob.objective(res.x.reshape(1,-1)))
             
-
+    torch.save(x_model.state_dict(), 'x_model.pth')
+    torch.save(lambda_model.state_dict(), 'lambda_model.pth')
+    np.save('accuracy.npy', np.array(acc))
 
     # end of iterations
     #np.save('L_train.npy',np.array(L_train_result))
@@ -146,14 +151,22 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
 
 if __name__ == "__main__":
 
+    class prob_arg_source:
+        sigma_1 = 1
+        mu_1 = 0
+        sigma_2 = 1
+        mu_2 = 0
+        ub = 10
+        total_resource = 5
+
     
-    L = problem_generator()
+    L = problem_generator(prob_arg_source)
     
     result = L.solve()
     out = result.x
     obj = result.fun
 
-    problems = [problem_generator() for _ in range(1000)]
+    problems = [problem_generator(prob_arg_source) for _ in range(1000)]
    
     class arg_nn:
         hidden_size = 20
@@ -162,8 +175,8 @@ if __name__ == "__main__":
     len_lambda = 2 * len_x +1
 
     num_epoch = 50
-    num_iteration = 5
-    num_frame = 500//5
+    num_iteration = 10
+    num_frame = 1000//10
     
     
 

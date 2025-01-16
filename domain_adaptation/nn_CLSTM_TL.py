@@ -25,9 +25,7 @@ class x_LSTM(nn.Module):
         out_x = self.net_fc(out_x)
         return out_x, out_hidden
     
-    def init_hidden(self):
-        return (torch.zeros(1, 1, self.arg_nn.hidden_size),
-                torch.zeros(1, 1, self.arg_nn.hidden_size))
+
 
     
 class lambda_LSTM(nn.Module):
@@ -50,6 +48,27 @@ class lambda_LSTM(nn.Module):
         delta_lambda = self.net_fc(out_lambda)
         
         return delta_lambda, out_hidden
+    
+
+class Discriminator(nn.Module):
+    def __init__(self, len_x, len_lambda, arg_nn) -> None:
+        super(Discriminator, self).__init__()
+        self.len_x = len_x
+        self.len_lambda = len_lambda
+        self.arg_nn = arg_nn
+        self.net = nn.Sequential(
+            nn.Linear(len_x + len_lambda, arg_nn.hidden_size_x),
+            nn.ReLU(),
+            nn.Linear(arg_nn.hidden_size_x, 1),
+            nn.Sigmoid()
+        )
+    
+    def forward(self, x, r):
+        x = x.view(-1, self.len_x)
+        r = r.view(-1, self.len_lambda)
+        xr = torch.cat((x, r), 1)
+        out = self.net(xr)
+        return out
     
 def lambda_proj(r):
     alpha = 2

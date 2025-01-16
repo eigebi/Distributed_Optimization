@@ -51,15 +51,16 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
     for epoch in range(num_epoch):
 
         # randomly initialize x,r and hidden states
-        init_x = torch.randn(len(problems),len_x)
+        #init_x = torch.randn(len(problems),len_x)
+        init_x = torch.randn(len(problems),len_lambda)
         init_r = torch.randn(len(problems),len_lambda)
 
         hidden_x = (torch.randn(1, arg_nn.hidden_size), torch.randn(1, arg_nn.hidden_size))
         hidden_lambda = (torch.randn(1, arg_nn.hidden_size), torch.randn(1, arg_nn.hidden_size))
 
 
-        for param in x_model.parameters():
-            param.requires_grad = True
+        #for param in x_model.parameters():
+        #    param.requires_grad = True
         for param in lambda_model.parameters():
             param.requires_grad = True
         reserved_r = init_r
@@ -72,41 +73,50 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
                 #print("epoch: ", epoch, "frame: ", frame, "problem: ", n_p)
 
                 for iter in range(num_iteration):
-                    r = reserved_r[n_p].view(1,-1).detach()
-                    x = reserved_x[n_p].view(1,-1).detach()
+                    r = reserved_r[n_p].view(1, -1).detach()
+                    x = reserved_x[n_p].view(1, -1).detach()
 
+                    # 计算 delta_lambda 并更新 r
                     grad_lambda = derive_grad_lambda(prob, x, r)
-                    delta_lambda,hidden_lambda = lambda_model(grad_lambda, h_s=hidden_lambda)
-                    # hidden state lambda initialized
-                    #hidden_lambda = None
+                    delta_lambda, hidden_lambda = lambda_model(-grad_lambda, h_s=hidden_lambda)
                     hidden_lambda = (hidden_lambda[0].detach(), hidden_lambda[1].detach())
                     _r = r + delta_lambda
-                    r = _r.detach()
+                    r = _r.detach()  # 保留更新后的 r
+
+                    # 更新 r 的梯度
                     grad_lambda = derive_grad_lambda(prob, x, r)
-                    _r.backward(-grad_lambda, retain_graph=True)
+                    _r.backward(-grad_lambda, retain_graph=True)  # 保留计算图以便后续使用
+                   
 
-                    r_p = lambda_proj(r)
-                    grad_x = torch.tensor(prob.gradient_x(x.detach().numpy(), r_p.detach().numpy()),dtype=torch.float32)
-                    delta_x,hidden_x = x_model(grad_x, h_s=hidden_x)
+                    # 投影 r 并计算 x 的梯度
+                    r_p = lambda_proj(r.detach())
+                    grad_x = prob.gradient_x(x.numpy(), r_p.numpy())
+                    grad_x = torch.from_numpy(grad_x).float().to(x.device)
+                    grad_x = torch.cat([grad_x, torch.zeros((1, len_lambda - grad_x.size(1)))], dim=1)
+
+                    # 更新 x
+                    delta_x, hidden_x = lambda_model(grad_x, h_s=hidden_x)
                     hidden_x = (hidden_x[0].detach(), hidden_x[1].detach())
-                    # hidden state x initialized
-                    #hidden_x = None
                     _x = x + delta_x
-                    x = _x.detach()
-                    grad_x = torch.tensor(prob.gradient_x(x.detach().numpy(), r_p.detach().numpy()),dtype=torch.float32)
-                    _x.backward(grad_x, retain_graph=True)
+                    x = _x.detach()  # 保留更新后的 x
+                    grad_x = prob.gradient_x(x.numpy(), r_p.numpy())
+                    grad_x = torch.from_numpy(grad_x).float().to(x.device)
+                    grad_x = torch.cat([grad_x, torch.zeros((1, len_lambda - grad_x.size(1)))], dim=1)
+                    _x.backward(grad_x, retain_graph=True)  # 保留计算图
+                
 
-                    reserved_r[n_p] = r.view(-1)
-                    reserved_x[n_p] = x.view(-1)
+                    # 保存更新后的变量
+                    reserved_r[n_p] = r.detach().view(-1)
+                    reserved_x[n_p] = x.detach().view(-1)
             
 
 
 
-                        
+            lambda_optimizer.zero_grad()            
             lambda_optimizer.step()
-            lambda_optimizer.zero_grad()
-            x_optimizer.step()
-            x_optimizer.zero_grad()
+            
+            #x_optimizer.step()
+            #x_optimizer.zero_grad()
             precision  = 0
             for n_p, prob in enumerate(problems):
                 r_p = lambda_proj(reserved_r[n_p].view(1,-1))
@@ -153,7 +163,7 @@ if __name__ == "__main__":
     out = result.x
     obj = result.fun
 
-    problems = [problem_generator() for _ in range(1000)]
+    problems = [problem_generator() for _ in range(1)]
    
     class arg_nn:
         hidden_size = 20
@@ -162,8 +172,8 @@ if __name__ == "__main__":
     len_lambda = 2 * len_x +1
 
     num_epoch = 50
-    num_iteration = 5
-    num_frame = 500//5
+    num_iteration = 20
+    num_frame = 1000//20
     
     
 

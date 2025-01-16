@@ -100,12 +100,18 @@ class problem_generator(prob):
     def gradient_x(self,x,r):
         grad_x = np.zeros([x.shape[0],self.num_o],dtype=np.float32)
         for k in range(x.shape[0]):
+            g = np.sum(x[k,:])
+            penalty = 0
+            if g>0:
+                penalty = 5 * g
+
+
             for i in range(self.num_o):
                 grad_x[k,self.obj[i].varID] += self.jac[i](x[k,self.obj[i].varID])
             if self.bounded:
-                grad_x[k,:] = grad_x[k,:] + r[k,-1]
+                grad_x[k,:] = grad_x[k,:] + r[k,-1] #+ penalty
             else:
-                grad_x[k,:] = grad_x[k,:] + r[k,:self.num_o] - r[k,self.num_o:-1] + r[k,-1]
+                grad_x[k,:] = grad_x[k,:] + r[k,:self.num_o] - r[k,self.num_o:-1] + r[k,-1] #+ penalty
         return grad_x
     
     def gradient_x_penalty(self,x,r):

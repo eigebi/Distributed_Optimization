@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.optimize import minimize
 from scipy.optimize import LinearConstraint
-import scipy
-np.random.seed(1008)
+
+np.random.seed(1006)
 
 #test problem is simple and do not contains grouping or partitioning
 
@@ -16,7 +16,6 @@ class BaseProblem:
         self.gamma = np.random.randn(len(varID))
         self.is_min = is_min
         self.x_next = []
-        
     def __call__(self, x):
         return self.func(x)
     
@@ -45,24 +44,18 @@ class prob:
 
 
 class problem_generator(prob):
-    def __init__(self, bounded = False):
+    def __init__(self,prob_arg, bounded = False):
         super(problem_generator,self).__init__()
-        num_o= 5
+        num_o= 10
         self.num_o = num_o
         self.bounded = bounded
+        self.prob_arg = prob_arg
         f_s = []
         self.jac = []
-        # record the feature of the problem
-        self.feature = None
-
         for _ in range(num_o):
-            temp = np.random.randn(3,3)
+            temp = self.prob_arg.sigma_1*np.random.randn(3,3) + self.prob_arg.mu_1
             temp = temp @ temp.T
-            temp2 = np.random.randn(3)*25
-            if self.feature is None:
-                self.feature = np.concatenate((temp.flatten(),temp2))
-            else:
-                self.feature = np.concatenate((self.feature,temp.flatten(),temp2))
+            temp2 = self.prob_arg.sigma_2*np.random.randn(3) + self.prob_arg.mu_2
 
             f_s.append(lambda x: x @ temp @ x + temp2 @ x+20)
             self.jac.append(lambda x: 2*temp @ x + temp2)
@@ -72,12 +65,12 @@ class problem_generator(prob):
             self.obj.append(BaseProblem(f,var_select))
         u_b = np.zeros(num_o+1)
         for i in range(num_o): 
-            u_bound = np.random.randint(1,3)#16
+            u_bound = np.random.randint(1,self.prob_arg.ub)#16
             self.con.append(BaseProblem(lambda x: x - u_bound ,[i]))
             u_b[i]=u_bound
         for i in range(num_o):
             self.con.append(BaseProblem(lambda x: -x ,[i]))
-        u_b[-1] = np.array([125],dtype=np.float32) # 5
+        u_b[-1] = np.array([self.prob_arg.total_resource],dtype=np.float32)
         self.con.append(BaseProblem(lambda x: np.array([np.sum(x)-u_b[-1]]) ,np.arange(num_o)))
         self.u_b = u_b
         
@@ -108,12 +101,18 @@ class problem_generator(prob):
     def gradient_x(self,x,r):
         grad_x = np.zeros([x.shape[0],self.num_o],dtype=np.float32)
         for k in range(x.shape[0]):
+            g = np.sum(x[k,:])
+            penalty = 0
+            if g>0:
+                penalty = 5 * g
+
+
             for i in range(self.num_o):
                 grad_x[k,self.obj[i].varID] += self.jac[i](x[k,self.obj[i].varID])
             if self.bounded:
-                grad_x[k,:] = grad_x[k,:] + r[k,-1]
+                grad_x[k,:] = grad_x[k,:] + r[k,-1] #+ penalty
             else:
-                grad_x[k,:] = grad_x[k,:] + r[k,:self.num_o] - r[k,self.num_o:-1] + r[k,-1]
+                grad_x[k,:] = grad_x[k,:] + r[k,:self.num_o] - r[k,self.num_o:-1] + r[k,-1] #+ penalty
         return grad_x
     
     def gradient_x_penalty(self,x,r):
