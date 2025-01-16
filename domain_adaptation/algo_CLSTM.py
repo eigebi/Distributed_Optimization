@@ -155,28 +155,23 @@ if __name__ == "__main__":
         sigma_1 = 1
         mu_1 = 0
         sigma_2 = 1
-        mu_2 = 0
+        mu_2 = -1
         ub = 10
         total_resource = 5
 
     
-    L = problem_generator(prob_arg_source)
-    
-    result = L.solve()
-    out = result.x
-    obj = result.fun
 
     problems = [problem_generator(prob_arg_source) for _ in range(1000)]
    
     class arg_nn:
-        hidden_size = 20
+        hidden_size = 32
         hidden_size_x = 20
-    len_x = 10
+    len_x = 5
     len_lambda = 2 * len_x +1
 
-    num_epoch = 50
-    num_iteration = 10
-    num_frame = 1000//10
+    num_epoch = 100
+    num_iteration = 20
+    num_frame = 1000//20
     
     
 
@@ -190,5 +185,3 @@ if __name__ == "__main__":
     
     my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration, optimizer)
 
-
-    print(out)

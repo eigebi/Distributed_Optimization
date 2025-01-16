@@ -44,9 +44,9 @@ class prob:
 
 
 class problem_generator(prob):
-    def __init__(self,prob_arg, bounded = False):
+    def __init__(self, prob_arg, bounded = False):
         super(problem_generator,self).__init__()
-        num_o= 10
+        num_o= 5
         self.num_o = num_o
         self.bounded = bounded
         self.prob_arg = prob_arg
@@ -57,7 +57,7 @@ class problem_generator(prob):
             temp = temp @ temp.T
             temp2 = self.prob_arg.sigma_2*np.random.randn(3) + self.prob_arg.mu_2
 
-            f_s.append(lambda x: x @ temp @ x + temp2 @ x+20)
+            f_s.append(lambda x: x @ temp @ x + temp2 @ x+200)
             self.jac.append(lambda x: 2*temp @ x + temp2)
 
         for f in f_s:

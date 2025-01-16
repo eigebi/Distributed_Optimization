@@ -51,11 +51,9 @@ class lambda_LSTM(nn.Module):
     
 
 class Discriminator(nn.Module):
-    def __init__(self, len_x, len_lambda, arg_nn) -> None:
+    def __init__(self, input_size) -> None:
         super(Discriminator, self).__init__()
-        self.len_x = len_x
-        self.len_lambda = len_lambda
-        self.arg_nn = arg_nn
+        self.input_size = input_size
         self.net = nn.Sequential(
             nn.Linear(len_x + len_lambda, arg_nn.hidden_size_x),
             nn.ReLU(),
@@ -63,9 +61,8 @@ class Discriminator(nn.Module):
             nn.Sigmoid()
         )
     
-    def forward(self, x, r):
-        x = x.view(-1, self.len_x)
-        r = r.view(-1, self.len_lambda)
+    def forward(self, feature):
+
         xr = torch.cat((x, r), 1)
         out = self.net(xr)
         return out
