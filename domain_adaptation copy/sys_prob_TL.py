@@ -46,7 +46,7 @@ class prob:
 class problem_generator(prob):
     def __init__(self,prob_arg, bounded = False):
         super(problem_generator,self).__init__()
-        num_o= 10
+        num_o= 5
         self.num_o = num_o
         self.bounded = bounded
         self.prob_arg = prob_arg

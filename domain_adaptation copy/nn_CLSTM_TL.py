@@ -14,7 +14,7 @@ class x_LSTM(nn.Module):
     # r represents lambda
     def forward(self, dx, h_s = None):
         # Reshape x and lambda to match the input size of the LSTM
-        dx = dx.view(-1, self.len_x)
+        #dx = dx.view(-1, self.len_x)
         if h_s is None:
             out_temp = self.net_x(dx)
         else:
@@ -38,7 +38,7 @@ class lambda_LSTM(nn.Module):
         
     def forward(self, grad_lambda, h_s = None):
         # Reshape lambda to match the input size of the LSTM
-        grad_lambda = grad_lambda.view(-1, self.len_lambda)
+        #grad_lambda = grad_lambda.view(-1, self.len_lambda)
         if h_s is None: 
             out_temp = self.net_lambda(grad_lambda)
         else:
@@ -51,20 +51,20 @@ class lambda_LSTM(nn.Module):
     
 
 class Discriminator(nn.Module):
-    def __init__(self, input_size) -> None:
+    def __init__(self, input_size, arg_nn) -> None:
         super(Discriminator, self).__init__()
         self.input_size = input_size
+        self.arg_nn = arg_nn
         self.net = nn.Sequential(
-            nn.Linear(len_x + len_lambda, arg_nn.hidden_size_x),
+            nn.Linear(self.input_size, arg_nn.hidden_size_x),
             nn.ReLU(),
-            nn.Linear(arg_nn.hidden_size_x, 1),
+            nn.Linear(arg_nn.hidden_size_x, 2),
             nn.Sigmoid()
         )
     
     def forward(self, feature):
 
-        xr = torch.cat((x, r), 1)
-        out = self.net(xr)
+        out = self.net(feature)
         return out
     
 def lambda_proj(r):
