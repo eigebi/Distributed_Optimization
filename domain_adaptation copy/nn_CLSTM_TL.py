@@ -59,7 +59,7 @@ class Discriminator(nn.Module):
             nn.Linear(self.input_size, arg_nn.hidden_size_x),
             nn.ReLU(),
             nn.Linear(arg_nn.hidden_size_x, 2),
-            nn.Sigmoid()
+            nn.Softmax()
         )
     
     def forward(self, feature):

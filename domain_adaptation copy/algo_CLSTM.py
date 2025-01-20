@@ -225,8 +225,8 @@ if __name__ == "__main__":
     len_x = 5
     len_lambda = 2 * len_x +1
 
-    num_epoch = 50
-    num_iteration = 10
+    num_epoch = 10
+    num_iteration = 20
     num_frame = 1000//10
     
     
