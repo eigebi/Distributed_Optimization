@@ -57,7 +57,7 @@ class problem_generator(prob):
             temp = temp @ temp.T
             temp2 = self.prob_arg.sigma_2*np.random.randn(3) + self.prob_arg.mu_2
 
-            f_s.append(lambda x: x @ temp @ x + temp2 @ x+20)
+            f_s.append(lambda x: x @ temp @ x + temp2 @ x+100)
             self.jac.append(lambda x: 2*temp @ x + temp2)
 
         for f in f_s:

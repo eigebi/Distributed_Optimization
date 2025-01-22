@@ -22,7 +22,29 @@ def derive_grad_x(problems, x, r):
     grad_x = torch.tensor([problems[i].gradient_x(x[:,i,:].numpy(), r[:,i,:].numpy()) for i in range(len(problems))],dtype=torch.float32)
     return grad_x.transpose(0,1)
     
+def train_D(model, D_loss,problems, x, r, hidden_state, is_source = True, is_lambda = True):
+    (x_model, lambda_model, D_model_x, D_model_lambda) = model
+    if is_lambda:
+        grad = derive_grad_lambda(problems, x, r)
+        model = lambda_model()
+        D_model = D_model_lambda()
+    else:
+        r_p = lambda_proj(r)
+        grad = derive_grad_x(problems, x, r_p)
+        model = x_model()
+        D_model = D_model_x()
+    delta, hidden_state = model(grad, h_s = hidden_state)
+    hidden_state = (hidden_state[0].detach(), hidden_state[1].detach())
+    temp = D_model(hidden_state[1])
+    alpha = 0.1 if is_source else 1
+    loss = alpha*D_loss(temp,torch.ones_like(temp))
+    return loss, delta, hidden_state
     
+    
+
+
+def train_x_lambda(x_model, lambda_model, x_optimizer, lambda_optimizer, D_model_x, D_model_lambda, D_optimizer_x, D_optimizer_lambda, D_loss, hidden_x, hidden_lambda, data_x, data_lambda, label_x, label_lambda):
+    pass
 
 
 
@@ -36,11 +58,6 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
     acc = []
 
 
-
-    lambda_D_data = []
-    lambda_D_label = []
-    x_D_data = []
-    x_D_label = []
     # to store the solution to source problems
     for n_p, prob in enumerate(prob_source):
         obj_truth_result['source'].append(prob.objective(prob.solve().x.reshape(1,-1)))
@@ -128,9 +145,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
                 loss_x = 0.1*D_loss(temp,torch.ones_like(temp))
                 loss_x.backward(retain_graph=True)
 
-                x_D_data.append(hidden_x_s[1].detach())
-                x_D_label.append(torch.tensor(np.kron(np.ones((len(prob_target),1)),np.array([1])),dtype=torch.float32))
-
+              
                 _x_s = x_s + delta_x_s
                 x_s = _x_s.detach()
 
@@ -143,9 +158,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
                 D_optimizer_x.step()
                 print("loss: ", loss_x.detach().numpy(), loss_lambda.detach().numpy())
 
-                x_D_data.append(hidden_x_t[1].detach())
-                x_D_label.append(torch.tensor(np.kron(np.ones((len(prob_target),1)),np.array([0])),dtype=torch.float32))
-
+               
                 _x_t = x_t + delta_x_t
                 x_t = _x_t.detach()
                 

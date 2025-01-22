@@ -9,7 +9,7 @@ from data_set import data, r_data
 
 torch.autograd.set_detect_anomaly(True)
 
-np.random.seed(10000)
+np.random.seed(10)
 torch.random.manual_seed(10000)
 
 
@@ -72,7 +72,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
                 _r = r + delta_lambda
                 r = _r.detach()
                 grad_lambda = derive_grad_lambda(problems, x, r)
-                _r.backward(-grad_lambda, retain_graph=True)
+                #_r.backward(-grad_lambda, retain_graph=True)
 
                 r_p = lambda_proj(r)
                 grad_x = derive_grad_x(problems, x, r_p)
@@ -85,7 +85,7 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
                 x = _x.detach()
                 grad_x = derive_grad_x(problems, x, r_p)
                 #grad_x = torch.tensor(prob.gradient_x(x.detach().numpy(), r_p.detach().numpy()),dtype=torch.float32)
-                _x.backward(grad_x, retain_graph=True)
+                #_x.backward(grad_x, retain_graph=True)
 
                 reserved_r = r
                 reserved_x = x
@@ -94,10 +94,10 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
 
 
                         
-            lambda_optimizer.step()
-            lambda_optimizer.zero_grad()
-            x_optimizer.step()
-            x_optimizer.zero_grad()
+            #lambda_optimizer.step()
+            #lambda_optimizer.zero_grad()
+            #x_optimizer.step()
+            #x_optimizer.zero_grad()
             precision  = 0
             for n_p, prob in enumerate(problems):
                 r_p = lambda_proj(reserved_r[:,n_p,:])
@@ -127,9 +127,9 @@ def my_train_true_gradient(problems, model, num_epoch, num_frame, num_iteration,
         #print("constraint function: ", prob.check_con(_x.detach().numpy())[-1])
         #print("opt obj: ", prob.objective(res.x.reshape(1,-1)))
             
-    torch.save(x_model.state_dict(), 'x_model.pth')
-    torch.save(lambda_model.state_dict(), 'lambda_model.pth')
-    np.save('accuracy.npy', np.array(acc))
+    #torch.save(x_model.state_dict(), 'x_model.pth')
+    #torch.save(lambda_model.state_dict(), 'lambda_model.pth')
+    #np.save('accuracy.npy', np.array(acc))
 
     # end of iterations
     #np.save('L_train.npy',np.array(L_train_result))
@@ -167,6 +167,8 @@ if __name__ == "__main__":
 
     x_model = x_LSTM(len_x, arg_nn)
     lambda_model = lambda_LSTM(len_lambda, arg_nn)
+    x_model.load_state_dict(torch.load('x_model.pth'))
+    lambda_model.load_state_dict(torch.load('lambda_model.pth'))
     x_optimizer = torch.optim.Adam(x_model.parameters(), lr=0.001)
     lambda_optimizer = torch.optim.Adam(lambda_model.parameters(), lr=0.0005)
 
