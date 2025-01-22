@@ -139,8 +139,8 @@ def my_eval(problems, model, num_epoch, num_iteration):
             precision_t /= len(prob_target)
             acc['target'].append(precision_t)
             print("precision_source: ", 'source', precision_s, 'target', precision_t)
-        np.save('acc_source.npy', acc['source'])
-        np.save('acc_target.npy', acc['target'])
+        np.save('acc_source_TL.npy', acc['source'])
+        np.save('acc_target_TL.npy', acc['target'])
 
 
 
@@ -172,7 +172,7 @@ if __name__ == "__main__":
 
 
     problems_source = [problem_generator(prob_arg_source) for _ in range(10000)]
-    problems_target = [problem_generator(prob_arg_target) for _ in range(10000)]
+    problems_target = [problem_generator(prob_arg_target) for _ in range(1000)]
     problems = (problems_source, problems_target)
    
     class arg_nn:
