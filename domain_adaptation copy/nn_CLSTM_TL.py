@@ -58,8 +58,8 @@ class Discriminator(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(self.input_size, arg_nn.hidden_size_x),
             nn.ReLU(),
-            nn.Linear(arg_nn.hidden_size_x, 2),
-            nn.Softmax()
+            nn.Linear(arg_nn.hidden_size_x, 1),
+            nn.Sigmoid()
         )
     
     def forward(self, feature):
