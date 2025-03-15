@@ -9,65 +9,7 @@ np.random.seed(10000)
 
 
 
-class AP:
-    def __init__(self, num_agent):
-        self.num_agent = num_agent
-        location = np.random.randint(0, 100, (num_agent, 2))
-        # each sub network connets to at most 2 other sub networks
-        distance = np.zeros((num_agent, num_agent))
-        for i in range(num_agent):
-            for j in range(i+1, num_agent):
-                distance[i, j] = np.linalg.norm(location[i] - location[j])
-                distance[j, i] = distance[i, j]
-        neighbor = np.zeros((num_agent, num_agent), dtype=np.int32)
-        for i in range(num_agent):
-            index = np.argsort(distance[i])
-            neighbor[i, index[1]] = 1
-            neighbor[i, index[2]] = 1
-        self.neighbor = neighbor
-        self.location = location
-        # plot the network  topology
-        import matplotlib.pyplot as plt
-        plt.scatter(location[:, 0], location[:, 1])
-        for i in range(num_agent):
-            for j in range(num_agent):
-                if neighbor[i, j] == 1:
-                    plt.plot([location[i, 0], location[j, 0]], [location[i, 1], location[j, 1]])
-        plt.show()
-        
-        # assign edges to nodes
-        
-class local_AP:
-    def __init__(self,num_var):
-        alpha = np.random.uniform(-2, -1, num_var)
-        beta = np.random.uniform(1, 9, num_var)
-        #ub = np.random.randint(5, 20, num_var)
-        self.ub = 2*beta    # symetric
-        self.obj = lambda x: 1/(1+np.exp(alpha*(x-beta)))
-        self.jac = lambda x: -(alpha*np.exp(-alpha*(x-beta)))/(1+np.exp(-alpha*(x-beta)))**2
-        self.var_index = None
-        #but remember this is a utilization function, needs to be maximized, or minimize its negative
-class AP_problem:
-    def __init__(self, num_var, num_agent, num_con):
-        self.num_var = num_var # list
-        self.num_agent = num_agent # 2
-        self.num_con = num_con
-        A = []
-        for i in range(self.num_agent):
-            A.append(np.random.randint(0, 2, (self.num_con, self.num_var[i])))
-        self.A = np.concatenate(A, axis=1)
-        self.C = np.random.randint(10,30,self.num_con)
-        temp = np.add.reduceat(self.A, [0,self.num_var[0]], axis=1)
-        self.con_assignment = np.argsort(temp)[:,-1]
-        self.local_probs = [local_AP(self.num_var[i]) for i in range(num_agent)]
-        self.derive_local_id()
-        pass
-    def derive_local_id(self):
-        for i in range(self.num_agent):
-            index_i = np.zeros(sum(self.num_var),dtype=np.int32)
-            index_i[np.sum(self.num_var[0:i],dtype=np.int32):np.sum(self.num_var[0:i+1],dtype=np.int32)] = 1
-            index_i = np.where((index_i + np.sum(self.A[self.con_assignment==i],axis=0))>0)[0]
-            self.local_probs[i].var_index = index_i
+
 
 class local_problem:
     def __init__(self,num_var,prob_arg):
@@ -80,11 +22,10 @@ class local_problem:
         temp = np.diag(mu)
         self.obj = lambda x: (x/diag-1)@ temp@(x/diag-1) - x@(1/diag)
         self.jac = lambda x: 2/diag * temp@(x/diag-1)- 1/diag
-        self.obj = lambda x: np.sum(-1/(1+np.exp(mu*(x-diag))))
-        self.jac = lambda x: +(mu*np.exp(-mu*(x-diag)))/(1+np.exp(-mu*(x-diag)))**2
+        #self.obj = lambda x: np.sum(-1/(1+np.exp(mu*(x-diag))))
+        #self.jac = lambda x: +(mu*np.exp(-mu*(x-diag)))/(1+np.exp(-mu*(x-diag)))**2
         self.ub = np.random.randint(10,20,num_var)
         self.var_index = None
-
 
 
 class problem_generator:
@@ -119,7 +60,7 @@ class problem_generator:
             self.local_probs[i].var_index = index_i
 
     def gradient_x(self, agent_id, x_i):
-        #r_dg = r[self.con_assignment==agent_id]@self.A[self.con_assignment==agent_id]
+        
         if agent_id < self.num_agent - 1:
             indices = np.arange(agent_id * self.num_var_local, (agent_id + 1) * self.num_var_local)
         else:
@@ -149,12 +90,14 @@ class problem_generator:
         x0 = np.random.randn(self.num_var)
         res = minimize(self.obj, x0,constraints=[con1, con2])
         return res
+    
 
+    
 if __name__ == '__main__':
     #network = AP(10)
 
-    AP_problems = AP_problem([20,15], 2, 5)
-    pass
+    
+
 
 
 

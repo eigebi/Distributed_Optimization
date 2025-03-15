@@ -49,4 +49,32 @@ plt.ylabel('Accuracy')
 plt.title('Accuracy vs Time')
 plt.grid()
 plt.show()
-        
+
+obj_t = np.load('obj_t_localFalsedzTrueg_t-3.7471797077821063.npy')[:3000]
+obj_t_local = np.load('obj_t_localTruedzTrueg_t-3.7471797077821063.npy')[:3000]
+obj_t_dx = np.load('obj_t_localFalsedzFalseg_t-3.7471797077821063.npy')[:3000]
+plt.figure(4)
+plt.plot(np.log10(np.abs(obj_t-(-3.7471797077821063))/(3.7471797077821063)), label='algorithm 1')
+plt.plot(np.log10(np.abs(obj_t_local-(-3.7471797077821063))/(3.7471797077821063)), label='local')
+plt.plot(np.log10(np.abs(obj_t_dx-(-3.7471797077821063))/(3.7471797077821063)), label='dx')
+plt.legend()
+plt.xlabel('time step')
+plt.ylabel('Accuracy')
+plt.title('Accuracy vs Time')
+plt.grid()
+plt.show()
+
+
+obj_t = np.load('obj_t_localFalsedzTrueg_t-9.825292922372583.npy')
+obj_t_local = np.load('obj_t_localTruedzTrueg_t-9.825292922372583.npy')
+obj_t_dx = np.load('obj_t_localFalsedzFalseg_t-9.825292922372583.npy')
+plt.figure(5)
+plt.plot(np.log10(np.abs(obj_t-(-9.825292922372583))/(9.825292922372583)), label='algorithm 1')
+plt.plot(np.log10(np.abs(obj_t_local-(-9.825292922372583))/(9.825292922372583)), label='local')
+plt.plot(np.log10(np.abs(obj_t_dx-(-9.825292922372583))/(9.825292922372583)), label='dx')
+plt.legend()
+plt.xlabel('time step')
+plt.ylabel('Accuracy')
+plt.title('Accuracy vs Time')
+plt.grid()
+plt.show()
