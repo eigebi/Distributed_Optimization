@@ -109,11 +109,34 @@ plt.grid()
 plt.show()
 
 
+acc_delay = []
+for i in range(1,6):
+    acc_delay.append(np.load('acc_dz_'+str(i)+'.npy',allow_pickle=True))
+
+acc_delay_t = []
+for i in range(1,6):
+    acc_delay_t.append(np.load('acc_dz_t_'+str(i)+'.npy'))
+pass
+
+colors = ['b', 'g', 'r', 'c', 'y']
+plt.figure(3)
+for i in range(5):
+    plt.plot(np.mean(acc_delay_t[i],axis=0), label='Algorithm 1 with delay = '+str(i+1),color=colors[i])
+plt.legend(fontsize=12)
+plt.xlabel('Execution time',fontsize=14)
+plt.show()
 
 
 
+plt.figure(4)
+for i in range(5):
+    length = min(arr.shape for arr in acc_delay[i])[0]
+    data = np.array([arr[:length] for arr in acc_delay[i]])
+    plt.plot(np.mean(data,axis=0), label='Algorithm 1 with delay = '+str(i+1),  color=colors[i])
 
-
+plt.legend(fontsize=12)
+plt.xlabel('Iteration number',fontsize=14)
+plt.show()
 '''
 
 obj_iter = [np.load('obj_iter_tau5g_t181.69592941946954.npy')\
