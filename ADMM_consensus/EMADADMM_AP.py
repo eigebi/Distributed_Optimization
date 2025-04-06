@@ -103,7 +103,7 @@ if __name__ == "__main__":
     acc = []
     inf = []
     grad_gap = []
-    for test in range(2):
+    for test in range(100):
         print("test: ", test)
         AP = AP_problem(num_var, num_agent, num_con)
         res = AP.opt_solution()
@@ -224,8 +224,8 @@ if __name__ == "__main__":
             for i in range(num_agent):
                 _id = AP.local_probs[i].local_var_index
                 delta = dx[i] + (r[:, np.newaxis] * AP.A)[AP.con_assignment == i].sum(axis=0)
-                temp = latest_x[i, _id] - np.clip(latest_x[i]-delta/beta, 0, ub)[_id]
-                gap += np.sum(beta*np.abs(temp))
+                temp = latest_x[i, _id] - np.clip(latest_x[i]-delta/beta/1000, 0, ub)[_id]
+                gap += np.sum(1000*beta*np.abs(temp))
             gap /= np.sum(num_var)
             infeasibility = np.sum(np.maximum(AP.A @ z - AP.C,0))/num_con
             stationary_gap_t.append(gap)
