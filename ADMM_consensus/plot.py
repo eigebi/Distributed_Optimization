@@ -2,9 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter
 
-acc = np.load('acc_dz_non.npy',allow_pickle=True)
-inf = np.load('inf_dz_non.npy',allow_pickle=True)
-grad_gap = np.load('grad_gap_dz_non.npy',allow_pickle=True)
+acc = np.load('acc_dz.npy',allow_pickle=True)
+inf = np.load('inf_dz.npy',allow_pickle=True)
+grad_gap = np.load('grad_gap_dz.npy',allow_pickle=True)
 #acc_dx = np.load('acc_dx.npy',allow_pickle=True)
 #inf_dx = np.load('inf_dx.npy',allow_pickle=True)
 #grad_gap_dx = np.load('grad_gap_dx.npy',allow_pickle=True)
@@ -12,13 +12,13 @@ grad_gap = np.load('grad_gap_dz_non.npy',allow_pickle=True)
 
 
 
-acc_dx = np.load('acc_dx_non.npy',allow_pickle=True)
-inf_dx = np.load('inf_dx_non.npy',allow_pickle=True)
-grad_gap_dx = np.load('grad_gap_dx_non.npy',allow_pickle=True)
+acc_dx = np.load('acc_dx.npy',allow_pickle=True)
+inf_dx = np.load('inf_dx.npy',allow_pickle=True)
+grad_gap_dx = np.load('grad_gap_dx.npy',allow_pickle=True)
 
-acc_dad = np.load('acc_dx_std_non.npy',allow_pickle=True)
-inf_dad = np.load('inf_dx_std_non.npy',allow_pickle=True)
-grad_gap_dad = np.load('grad_gap_dx_std_non.npy',allow_pickle=True)
+acc_dad = np.load('acc_dx_std.npy',allow_pickle=True)
+inf_dad = np.load('inf_dx_std.npy',allow_pickle=True)
+grad_gap_dad = np.load('grad_gap_dx_std.npy',allow_pickle=True)
 # Extract the first 8000 elements from all arrays in acc
 # Truncate all sequences in acc to 8000 elements and compute the mean and standard deviation across the 100 sequences for each point
 acc = [arr[:6000] for arr in acc]
@@ -35,7 +35,7 @@ acc_dad_mean = np.mean(np.array(acc_dad), axis=0)  # Compute the mean across the
 acc_dad_std = np.std(acc_dad, axis=0)
 
 # Apply a sliding window average with a window size of 5
-window_size = 5
+window_size = 2
 acc_dad_mean = np.convolve(acc_dad_mean, np.ones(window_size)/window_size, mode='same')
 acc_dad_std = np.convolve(acc_dad_std, np.ones(window_size)/window_size, mode='same')
 
@@ -60,19 +60,19 @@ plt.show()
 
 inf = [np.mean(np.maximum(arr,0)[:6000],axis=1) for arr in inf]
 #inf = [np.mean(arr,axis=1)[:6000] for arr in inf]
-inf_mean = np.mean(np.array(inf), axis=0)  # Compute the mean across the 100 sequences for each point
+inf_mean = np.mean(np.power(np.array(inf),2), axis=0)  # Compute the mean across the 100 sequences for each point
 inf_std = 0.6*np.std(inf, axis=0)   # Compute the standard deviation across the 100 sequences for each point
-inf_dx = [np.mean(np.maximum(arr,0)[:6000],axis=1) for arr in inf_dx]
+inf_dx = [np.mean(np.power(np.maximum(arr,0)[:6000],2),axis=1) for arr in inf_dx]
 inf_dx_mean = np.mean(np.array(inf_dx), axis=0)  # Compute the mean across the 100 sequences for each point 
 inf_dx_std = 0.6*np.std(inf_dx, axis=0)   # Compute the standard deviation across the 100 sequences for each point
-inf_dad = [np.mean(np.maximum(arr,0)[:6000],axis=1) for arr in inf_dad]
+inf_dad = [np.mean(np.power(np.maximum(arr,0)[:6000],2),axis=1) for arr in inf_dad]
 inf_dad_mean = np.mean(np.array(inf_dad), axis=0)  # Compute the mean across the 100 sequences for each point
 # Plot the mean with a shaded area representing the standard deviation
 plt.figure(1)
 plt.plot(inf_mean, label='Algorithm 1')
 #plt.fill_between(range(len(inf_mean)), inf_mean - inf_std, inf_mean + inf_std, color='b', alpha=0.2, label='Std Dev')
 plt.plot(inf_dx_mean, label='CD_ADMM without Multiplier-Exchange')
-plt.plot(inf_dad_mean, label='Distributed Dual Ascent Descent')
+plt.plot(inf_dad_mean, label='Distributed Dual Ascent Descent', zorder = 2, alpha=0.8,linewidth=0.5)
 #plt.fill_between(range(len(inf_dx_mean)), inf_dx_mean - inf_dx_std, inf_dx_mean + inf_dx_std, color='r', alpha=0.2, label='Std Dev_dx')
 plt.legend(fontsize=12)
 plt.xlabel('Iteration Number',fontsize=14)
@@ -86,23 +86,30 @@ plt.show()
 # Plotting the infeasibility
 
 grad_gap = [arr[:6000] for arr in grad_gap]
-grad_gap_mean = np.mean(np.array(grad_gap), axis=0)  # Compute the mean across the 100 sequences for each point
+grad_gap_mean = np.mean(np.power(np.array(grad_gap),2), axis=0)  # Compute the mean across the 100 sequences for each point
 grad_gap_std = 0.6*np.std(grad_gap, axis=0)   # Compute the standard deviation across the 100 sequences for each point
 grad_gap_dx = [arr[:6000] for arr in grad_gap_dx]
-grad_gap_dx_mean = np.mean(np.array(grad_gap_dx), axis=0)  # Compute the mean across the 100 sequences for each point   
+grad_gap_dx_mean = np.mean(np.power(np.array(grad_gap_dx),2), axis=0)  # Compute the mean across the 100 sequences for each point   
 grad_gap_dx_std = 0.6*np.std(grad_gap_dx, axis=0)   # Compute the standard deviation across the 100 sequences for each point
 grad_gap_dad = [arr[:6000] for arr in grad_gap_dad]
-grad_gap_dad_mean = np.mean(np.array(grad_gap_dad), axis=0)  # Compute the mean across the 100 sequences for each point
+grad_gap_dad_mean = np.mean(np.power(np.array(grad_gap_dad),2), axis=0)  # Compute the mean across the 100 sequences for each point
 # Plot the mean with a shaded area representing the standard deviation
+window_size = 2
+grad_gap_mean = np.convolve(grad_gap_mean, np.ones(window_size)/window_size, mode='same')
+grad_gap_dx_mean = np.convolve(grad_gap_dx_mean, np.ones(window_size)/window_size, mode='same')
+grad_gap_dad_mean = np.convolve(grad_gap_dad_mean, np.ones(window_size)/window_size, mode='same')
+
 plt.figure(2)
 plt.plot(grad_gap_mean, label='Algorithm 1')
 #plt.fill_between(range(len(grad_gap_mean)), grad_gap_mean - grad_gap_std, grad_gap_mean + grad_gap_std, color='b', alpha=0.2, label='Std Dev')
 plt.plot(grad_gap_dx_mean, label='CD_ADMM without Multiplier-Exchange')
 #plt.fill_between(range(len(grad_gap_dx_mean)), grad_gap_dx_mean - grad_gap_dx_std, grad_gap_dx_mean + grad_gap_dx_std, color='r', alpha=0.2, label='Std Dev_dx')
-plt.plot(grad_gap_dad_mean, label='Distributed Dual Ascent Descent',zorder=2)
+plt.plot(grad_gap_dad_mean, label='Distributed Dual Ascent Descent',zorder=2, alpha=0.8, linewidth=0.5)
 plt.legend(fontsize=12)
 plt.xlabel('Iteration Number',fontsize=14)
 plt.ylabel('Gradient Residue',fontsize=14)
+# Apply a sliding window average with a window size of 5 to smooth the curves
+
 plt.yscale('log')
 #plt.title('Mean Gradient Gap with Standard Deviation')
 plt.grid()
@@ -121,26 +128,32 @@ pass
 
 colors = ['b', 'g', 'r', 'c', 'y']
 plt.figure(3)
-for i in range(5):
+for i in [0,2,4]:
     tau  = i+1
-    plt.plot(np.mean(acc_delay_t[i],axis=0), label='Algorithm 1 with delay = '+str(tau),color=colors[i])
+    plt.plot(np.mean(acc_delay_t[i],axis=0), label='Algorithm 1,  $\\tau$ = '+str(tau),color=colors[i])
 plt.legend(fontsize=12)
 plt.xlabel('Execution time',fontsize=14)
 plt.yscale('log')
+plt.ylabel('Relative Error',fontsize=14)
+plt.xlim(0, 2000)
+plt.grid()
 plt.show()
 
 
 
 plt.figure(4)
-for i in range(5):
+for i in [0,2,4]:
     tau = i+1
     length = min(arr.shape for arr in acc_delay[i])[0]
     data = np.array([arr[:length] for arr in acc_delay[i]])
-    plt.plot(np.mean(data,axis=0), label='Algorithm 1 with delay = '+str(tau),  color=colors[i])
+    plt.plot(np.mean(data,axis=0), label='Algorithm 1, $\\tau$ = '+str(tau),  color=colors[i])
 
 plt.legend(fontsize=12)
 plt.yscale('log')
-plt.xlabel('Iteration number',fontsize=14)
+plt.xlabel('Iteration number', fontsize=14)
+plt.ylabel('Relative Error',fontsize=14)
+plt.xlim(0, 2000)
+plt.grid()
 plt.show()
 
 
