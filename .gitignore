@@ -1,3 +1,8 @@
+# Custom gitignore file for Python projects
+.npy
+.pth
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
