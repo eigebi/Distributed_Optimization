@@ -3,6 +3,7 @@ from scipy.optimize import minimize
 from scipy.optimize import LinearConstraint
 from scipy.linalg import block_diag
 
+'''
 class AP:
     def __init__(self, num_agent):
         self.num_agent = num_agent
@@ -28,9 +29,10 @@ class AP:
                 if neighbor[i, j] == 1:
                     plt.plot([location[i, 0], location[j, 0]], [location[i, 1], location[j, 1]])
         plt.show()
-        
         # assign edges to nodes
-        
+'''
+
+
 class local_AP:
     def __init__(self,num_var):
         alpha = np.random.uniform(-2, -1, num_var)
@@ -48,44 +50,65 @@ class local_AP:
         self.var_index = None
         self.L_fi = np.max(np.abs(alpha/4))
         #but remember this is a utilization function, needs to be maximized, or minimize its negative
+
+
 class AP_problem:
-    def __init__(self, num_var, num_agent, num_con):
+    def __init__(self, num_var, num_agent, num_con, num_problems):
         self.num_var = num_var # list
         self.num_agent = num_agent # 2
         self.num_con = num_con
+        self.num_problems = num_problems
+
         A = []
         for i in range(self.num_agent):
             A.append(np.random.randint(0, 2, (self.num_con, self.num_var[i])))
         self.A = np.concatenate(A, axis=1)
         self.C = np.random.randint(10,20,self.num_con)
         temp = np.add.reduceat(self.A, [0,self.num_var[0]], axis=1)
-        self.con_assignment = np.argsort(temp)[:,-1]
-        self.local_probs = [local_AP(self.num_var[i]) for i in range(num_agent)]
-        self.global_ub = np.concatenate([self.local_probs[j].ub for j in range(self.num_agent)])
+        self.con_assignment = np.argsort(temp)[:,-1]    
+        self.local_probs = [[local_AP(self.num_var[i]) for i in range(num_agent)] for _ in range(num_problems)]
+        self.global_ub = [np.concatenate([self.local_probs[n][j].ub for j in range(self.num_agent)]) for n in range(num_problems)]
         self.derive_local_id()
+        self.local_index = [self.local_probs[0][i].consensus_var_index for i in range(self.num_agent)]
+        self.local_var_num = [self.local_probs[0][i].consensus_var_index.shape[0] for i in range(self.num_agent)]
+
         
     def derive_local_id(self):
         for i in range(self.num_agent):
             index_i = np.zeros(sum(self.num_var),dtype=np.int32)
             index_i[np.sum(self.num_var[0:i],dtype=np.int32):np.sum(self.num_var[0:i+1],dtype=np.int32)] = 1
             local_index_i = np.where((np.sum(self.A[self.con_assignment!=i],axis=0)==0) & (index_i==1))[0]
-            self.local_probs[i].local_var_index = local_index_i
+            for n in range(self.num_problems):
+                self.local_probs[n][i].local_var_index = local_index_i 
+            #consensus_index_i = np.where(\
+            #    ((np.sum(self.A[self.con_assignment==i],axis=0)!=0) & (index_i==0)) |\
+            #    ((np.sum(self.A[self.con_assignment!=i],axis=0)!=0) & (index_i==1)))[0]
             consensus_index_i = np.where(\
                 ((np.sum(self.A[self.con_assignment==i],axis=0)!=0) & (index_i==0)) |\
-                ((np.sum(self.A[self.con_assignment!=i],axis=0)!=0) & (index_i==1)))[0]    
-            self.local_probs[i].consensus_var_index = consensus_index_i
-            self.local_probs[i].var_index = np.where(index_i==1)[0]
-    def gradient_x(self, agent_id, z):
+                ((index_i==1)))[0]   
+            for n in range(self.num_problems):
+                self.local_probs[n][i].consensus_var_index = consensus_index_i
+                self.local_probs[n][i].var_index = np.where(index_i==1)[0]
+
+    # partial derivative w.r.t. x, or \nabla f + lambda \nabla g
+    def gradient_x(self, agent_id, x, p_id):
+        x = x.detach().numpy()
         x_full = np.zeros(sum(self.num_var))
-        x_full[self.local_probs[agent_id].var_index] = self.local_probs[agent_id].jac(z[self.local_probs[agent_id].var_index])
+        x_full[self.local_probs[p_id][agent_id].var_index] = self.local_probs[p_id][agent_id].jac(x[self.local_probs[p_id][agent_id].var_index])
         return x_full
-    def obj(self, z):
+    # partial derivative w.r.t. lambda, or g_x
+    def gradient_lambda(self, x, p_id):
+        x = x.detach().numpy()
+        return np.concatenate([-x, x - self.global_ub[p_id], self.A @ x - self.C], axis=0)
+        
+
+    def obj(self, x):
         obj = []
         for i in range(self.num_agent):
-            obj.append(self.local_probs[i].obj(z[self.local_probs[i].var_index]))
-        return np.sum(obj)   
+            obj.append(self.local_probs[i].obj(x[self.local_probs[i].var_index]))
+        return np.sum(obj)  
+     
     def opt_solution(self):
-        
         con1 = LinearConstraint(self.A, 0, self.C)
         con2 = LinearConstraint(np.eye(sum(self.num_var)), 0, self.global_ub)
         x0 = np.abs(np.random.randn(sum(self.num_var)))

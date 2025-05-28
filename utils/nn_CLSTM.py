@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
 # this is the centralized version without a projection layer 
 class x_LSTM(nn.Module):
@@ -8,13 +9,13 @@ class x_LSTM(nn.Module):
         super(x_LSTM, self).__init__()
         self.len_x = len_x
         self.arg_nn = arg_nn
-        self.net_x = nn.LSTM(input_size=len_x, hidden_size=arg_nn.hidden_size)
+        self.net_x = nn.LSTM(input_size=len_x, hidden_size=arg_nn.hidden_size, batch_first=True)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_x)
 
     # r represents lambda
     def forward(self, dx, h_s = None):
         # Reshape x and lambda to match the input size of the LSTM
-        dx = dx.view(-1, self.len_x)
+        dx = dx.view(1, -1, self.len_x)  # Add sequence dimension (seq_len=1, batch, features)
         if h_s is None:
             out_temp = self.net_x(dx)
         else:
@@ -35,17 +36,17 @@ class lambda_LSTM(nn.Module):
         super(lambda_LSTM, self).__init__()
         self.len_lambda = len_lambda
         self.arg_nn = arg_nn
-        self.net_lambda = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size)
+        self.net_lambda = nn.LSTM(input_size=len_lambda, hidden_size=arg_nn.hidden_size, batch_first=True)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_lambda)
         
     def forward(self, grad_lambda, h_s = None):
         # Reshape lambda to match the input size of the LSTM
-        grad_lambda = grad_lambda.view(-1, self.len_lambda)
+        grad_lambda = torch.tensor(grad_lambda[:,np.newaxis,:], dtype=torch.float32)  # Add sequence dimension (seq_len=1, batch, features)
         if h_s is None: 
             out_temp = self.net_lambda(grad_lambda)
         else:
             out_temp = self.net_lambda(grad_lambda, h_s)
-        out_lambda = out_temp[0]
+        out_lambda = out_temp[0].view(-1, self.arg_nn.hidden_size)  # Remove sequence dimension
         out_hidden = out_temp[1]
         delta_lambda = self.net_fc(out_lambda)
         
