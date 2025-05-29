@@ -30,8 +30,20 @@ def derive_grad_lambda(problems, x, z, r, if_dz):
 
 def derive_grad_x(problems, x, z, r, if_dz):
     r_p = lambda_proj(r)
-    grad_x = np.array([problems.gradient_x(x[i,:], r_p[i,:].numpy()) for i in range(num_problems)],dtype=np.float32)
-    return grad_x.transpose(0,1) # to edit
+    #if if_dz:
+    if False:
+        temp = z
+        #grad_x = 
+    else:
+        for i in range(num_agent):
+            temp = torch.zeros_like(z)
+            temp[:, problems.local_index[i]] = x[i]
+            grad_x = np.array(problems.gradient_x(temp[i], r_p[i]), dtype=np.float32)
+    
+    pass
+
+    #grad_x = np.array([problems.gradient_x(temp[i], r_p[i].numpy()) for i in range(num_problems)],dtype=np.float32)
+    #return grad_x.transpose(0,1) # to edit
     
 
 

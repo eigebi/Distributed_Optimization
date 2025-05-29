@@ -45,8 +45,11 @@ class local_AP:
         #self.obj = lambda x:-np.log(x+1)/np.log(alpha+1)
         #self.jac = lambda x:-1/(x+1)/np.log(alpha+1)
 
-        self.local_var_index = None
+        # only operated locally
+        self.assigned_var_index = None 
+        # all variables that this agent can access, including local and consensus variables
         self.consensus_var_index = None
+        # variables before constraints assignment
         self.var_index = None
         self.L_fi = np.max(np.abs(alpha/4))
         #but remember this is a utilization function, needs to be maximized, or minimize its negative
@@ -71,15 +74,15 @@ class AP_problem:
         self.derive_local_id()
         self.local_index = [self.local_probs[0][i].consensus_var_index for i in range(self.num_agent)]
         self.local_var_num = [self.local_probs[0][i].consensus_var_index.shape[0] for i in range(self.num_agent)]
-
+        self.assigned_index = [self.local_probs[0][i].assigned_var_index for i in range(self.num_agent)]
         
     def derive_local_id(self):
         for i in range(self.num_agent):
             index_i = np.zeros(sum(self.num_var),dtype=np.int32)
             index_i[np.sum(self.num_var[0:i],dtype=np.int32):np.sum(self.num_var[0:i+1],dtype=np.int32)] = 1
-            local_index_i = np.where((np.sum(self.A[self.con_assignment!=i],axis=0)==0) & (index_i==1))[0]
+            assigned_index_i = np.where((np.sum(self.A[self.con_assignment==i],axis=0)!=0) & (index_i==0))[0]
             for n in range(self.num_problems):
-                self.local_probs[n][i].local_var_index = local_index_i 
+                self.local_probs[n][i].assigned_var_index = assigned_index_i 
             #consensus_index_i = np.where(\
             #    ((np.sum(self.A[self.con_assignment==i],axis=0)!=0) & (index_i==0)) |\
             #    ((np.sum(self.A[self.con_assignment!=i],axis=0)!=0) & (index_i==1)))[0]
@@ -89,12 +92,13 @@ class AP_problem:
             for n in range(self.num_problems):
                 self.local_probs[n][i].consensus_var_index = consensus_index_i
                 self.local_probs[n][i].var_index = np.where(index_i==1)[0]
-
     # partial derivative w.r.t. x, or \nabla f + lambda \nabla g
     def gradient_x(self, agent_id, x, p_id):
         x = x.detach().numpy()
         x_full = np.zeros(sum(self.num_var))
         x_full[self.local_probs[p_id][agent_id].var_index] = self.local_probs[p_id][agent_id].jac(x[self.local_probs[p_id][agent_id].var_index])
+        #x_full[self.local_probs[p_id][agent_id].assigned_var_index] = 1
+        x_full += 
         return x_full
     # partial derivative w.r.t. lambda, or g_x
     def gradient_lambda(self, x, p_id):
