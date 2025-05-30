@@ -66,7 +66,7 @@ class AP_problem:
         for i in range(self.num_agent):
             A.append(np.random.randint(0, 2, (self.num_con, self.num_var[i])))
         self.A = np.concatenate(A, axis=1)
-        self.C = np.random.randint(10,20,self.num_con)
+        self.C = np.random.randint(10,20,[self.num_problems, self.num_con])
         temp = np.add.reduceat(self.A, [0,self.num_var[0]], axis=1)
         self.con_assignment = np.argsort(temp)[:,-1]    
         self.local_probs = [[local_AP(self.num_var[i]) for i in range(num_agent)] for _ in range(num_problems)]
@@ -107,23 +107,21 @@ class AP_problem:
     # partial derivative w.r.t. x, or \nabla f + lambda \nabla g
     def gradient_x(self, x, r, agent_id, is_dz=False):
         r = r.detach().numpy()
-        if not is_dz:
-            z = np.zeros((self.num_problems,sum(self.num_var)), dtype=np.float32)
-            z[:, self.local_index[agent_id]] = x[agent_id].detach().numpy()
-        else:
+        if is_dz:
             z = x.detach().numpy()
+        else: #from dx
+            z = x[:,agent_id,:].detach().numpy()
         dx_full = np.zeros_like(z, dtype=np.float32)
         for p_id in range(self.num_problems):
-            local_index = self.local_probs[p_id][agent_id].var_index
+            local_index = self.local_probs[p_id][agent_id].var_index 
             dx_full[p_id,local_index] = self.local_probs[p_id][agent_id].jac(z[p_id,local_index])
-
         dx_full += r @ self.gradient_gx[agent_id]
-        # for agent_id
         return dx_full
+    
     # partial derivative w.r.t. lambda, or g_x
-    def gradient_lambda(self, x, p_id):
+    def gradient_lambda(self, x):
         x = x.detach().numpy()
-        return np.concatenate([-x, x - self.global_ub[p_id], self.A @ x - self.C], axis=0)
+        return np.concatenate([-x, x - self.global_ub, x @ self.A.T - self.C], axis=1)
         
 
     def obj(self, x):
