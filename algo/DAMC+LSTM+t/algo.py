@@ -51,7 +51,7 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
     acc = []
 
     # collect the objective value of the true solution
-    #for n_p, prob in enumerate(problems):
+    obj_truth_result = problems.opt_solution()
     #    obj_truth_result.append(prob.objective(prob.solve().x.reshape(1,-1)))
     
     #start training: generate multiple initial point and evolve iteratively
@@ -84,7 +84,10 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                     if j in problems.local_index[n]:
                         z_graph[i, j, n] = 1
         z = torch.tensor(z, dtype=torch.float32)
-                    
+
+        rho = 0.001
+
+           
         # train the model
         for frame in range(num_frame):
             for iter in range(num_iteration):
@@ -103,6 +106,8 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                 # distribtued update of x
                 
                 grad_x = derive_grad_x(problems, x, z, r, if_dz)
+                grad_x += gamma + rho * (x - z)
+
                 for i in range(num_agent):
                     delta_x,hidden_x[i] = x_models[i](grad_x[:,i,problems.local_index[i]], h_s=hidden_x[i])
                     hidden_x[i] = (hidden_x[i][0].detach(), hidden_x[i][1].detach())
@@ -110,21 +115,24 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                     _x = x[:,i,problems.local_index[i]] + delta_x.view(-1, len_x[i])
                     x[:,i,problems.local_index[i]] = _x.detach()
                     # a little bit complicated, gradient calculation could be out the loop
+
                     grad_x = derive_grad_x(problems, x, z, r, if_dz)
+                    grad_x += gamma + rho * (x - z)
+
                     _x.backward(torch.tensor(grad_x[:,i,problems.local_index[i]]), retain_graph=True)
 
 
                 # consensus update of gamma and z
-                rho = 1
-                for i in range(num_agent):
-                    gamma[:,i,problems.local_index[i]] += rho * (x[:,i,problems.local_index[i]] - z[:,problems.local_index[i]]).detach()
-                x_temp = torch.zeros((num_problem, num_agent, np.sum(num_var)), dtype=torch.float32)
-                for i in range(num_agent):
-                    x_temp[:,i,problems.local_index[i]] = x[:,i,problems.local_index[i]].detach()
-                for k in range(np.sum(num_var)):
-                    _id = z_graph[:,k,:]
-                    z[:,k] = (torch.sum(gamma[_id==1,:,k].view(num_problem,-1), dim=1) + rho * torch.sum(x_temp[_id==1,:,k].view(num_problem,-1), dim=1)) / (np.sum(_id, 1) * rho)
-                z = torch.clip(z, torch.zeros(num_problem,np.sum(num_var)), torch.tensor(ub))
+                if iter % 5 == 0:
+                    for i in range(num_agent):
+                        gamma[:,i,problems.local_index[i]] += rho * (x[:,i,problems.local_index[i]] - z[:,problems.local_index[i]]).detach()
+                    x_temp = torch.zeros((num_problem, num_agent, np.sum(num_var)), dtype=torch.float32)
+                    for i in range(num_agent):
+                        x_temp[:,i,problems.local_index[i]] = x[:,i,problems.local_index[i]].detach()
+                    for k in range(np.sum(num_var)):
+                        _id = z_graph[:,k,:]
+                        z[:,k] = (torch.sum(gamma[_id==1,:,k].view(num_problem,-1), dim=1) + rho * torch.sum(x_temp[_id==1,:,k].view(num_problem,-1), dim=1)) / (np.sum(_id, 1) * rho)
+                    z = torch.clip(z, torch.zeros(num_problem,np.sum(num_var)), torch.tensor(ub))
 
 
 
@@ -141,13 +149,12 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
             for i in range(num_agent):
                 x_optimizer[i].step()
                 x_optimizer[i].zero_grad()
-'''
+
             precision  = 0
-            for n_p, prob in enumerate(problems):
-                r_p = lambda_proj(reserved_r[:,n_p,:])
-                x = reserved_x[:,n_p,:]
-                precision += 1 - np.abs(prob.objective(x.detach().numpy())-obj_truth_result[n_p])/np.abs(obj_truth_result[n_p])
-            precision /= len(problems)
+            r_p = lambda_proj(r)
+            for p_id in range(num_problem):
+                precision += 1 - np.abs(problems.obj(z[p_id].detach().numpy(),p_id)-obj_truth_result[p_id].fun)/np.abs(obj_truth_result[p_id].fun)
+            precision /= num_problem
             acc.append(precision)
             print("precision: ", precision)
             #print("delta: ",  [problems[i].objective(reserved_x[i].view(1,-1).detach().numpy()) for i in range(len(problems))], obj_truth_result)
@@ -164,10 +171,10 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
         # Save models and accuracy array
        
         # print result each iteration
-        print("lambda:",r_p.detach().numpy())
-        print("x:",x.detach().numpy())
-        res = prob.solve()
-        print("opt x: ", res.x)
+        #print("lambda:",r_p.detach().numpy())
+        #print("x:",x.detach().numpy())
+        #res = prob.solve()
+        #print("opt x: ", res.x)
         #print("constraint function: ", prob.check_con(_x.detach().numpy())[-1])
         #print("opt obj: ", prob.objective(res.x.reshape(1,-1)))
             
@@ -181,7 +188,6 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
     #np.save('L_truth.npy',np.array(L_truth_result))
     #np.save('obj_train.npy',np.array(obj_truth_result))
 
-'''
 
 
 
@@ -207,7 +213,7 @@ if __name__ == "__main__":
     inf = []
     grad_gap = []
 
-    num_problem = 2
+    num_problem = 1
     problems = AP_problem(num_var, num_agent, num_con, num_problem)
     ub = np.array(problems.global_ub)
 
@@ -215,8 +221,8 @@ if __name__ == "__main__":
     len_lambda = 2*np.sum(num_var) + num_con
 
     num_epoch = 50
-    num_iteration = 5
-    num_frame = 500//5
+    num_iteration = 10
+    num_frame = 500//10
     class arg_nn:
         hidden_size = 32
         hidden_size_x = 20

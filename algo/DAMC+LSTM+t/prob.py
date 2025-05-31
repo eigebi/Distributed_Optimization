@@ -124,16 +124,20 @@ class AP_problem:
         return np.concatenate([-x, x - self.global_ub, x @ self.A.T - self.C], axis=1)
         
 
-    def obj(self, x):
-        obj = []
+    def obj(self, x, p_id):
+        obj = np.zeros(self.num_agent, dtype=np.float32)
+        #x = x.detach().numpy()
         for i in range(self.num_agent):
-            obj.append(self.local_probs[i].obj(x[self.local_probs[i].var_index]))
+            obj[i] = np.sum(self.local_probs[p_id][i].obj(x[self.local_probs[p_id][i].var_index]))
         return np.sum(obj)  
      
     def opt_solution(self):
-        con1 = LinearConstraint(self.A, 0, self.C)
-        con2 = LinearConstraint(np.eye(sum(self.num_var)), 0, self.global_ub)
-        x0 = np.abs(np.random.randn(sum(self.num_var)))
-        res = minimize(self.obj, x0,constraints=[con1, con2])
-        return res
+        result = []
+        for p_id in range(self.num_problems):
+            con1 = LinearConstraint(self.A, 0, self.C[p_id])
+            con2 = LinearConstraint(np.eye(sum(self.num_var)), 0, self.global_ub[p_id])
+            x0 = np.abs(np.random.randn(sum(self.num_var)))
+            res = minimize(lambda x : self.obj(x ,p_id), x0,constraints=[con1, con2])
+            result.append(res)
+        return result
     
