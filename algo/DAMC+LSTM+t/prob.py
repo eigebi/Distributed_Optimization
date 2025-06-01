@@ -79,6 +79,7 @@ class AP_problem:
         
         
     def derive_local_id(self):
+        # regardless of the number of problems
         for i in range(self.num_agent):
             index_i = np.zeros(sum(self.num_var),dtype=np.int32)
             index_i[np.sum(self.num_var[0:i],dtype=np.int32):np.sum(self.num_var[0:i+1],dtype=np.int32)] = 1
