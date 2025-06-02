@@ -92,15 +92,15 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
             for iter in range(num_iteration):
                 r = reserved_r
                 x = reserved_x # to reshape
+                if iter % 1 == 1:
+                    grad_lambda = derive_grad_lambda(problems, x, z, r, if_dz)
+                    delta_lambda, hidden_lambda = lambda_model(grad_lambda, h_s=hidden_lambda)
+                    hidden_lambda = (hidden_lambda[0].detach(), hidden_lambda[1].detach())
 
-                grad_lambda = derive_grad_lambda(problems, x, z, r, if_dz)
-                delta_lambda, hidden_lambda = lambda_model(grad_lambda, h_s=hidden_lambda)
-                hidden_lambda = (hidden_lambda[0].detach(), hidden_lambda[1].detach())
-
-                _r = r + delta_lambda
-                r = _r.detach()
-                grad_lambda = torch.tensor(derive_grad_lambda(problems, x, z, r, if_dz), dtype = torch.float32)
-                _r.backward(-grad_lambda, retain_graph=True)
+                    _r = r + delta_lambda
+                    r = _r.detach()
+                    grad_lambda = torch.tensor(derive_grad_lambda(problems, x, z, r, if_dz), dtype = torch.float32)
+                    _r.backward(-grad_lambda, retain_graph=True)
 
                 # distribtued update of x
                 
@@ -124,7 +124,7 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
 
 
                 # consensus update of gamma and z
-                if iter % 1 == 0:
+                if iter % 1 == 1:
                     for i in range(num_agent):
                         gamma[:,i,problems.local_index[i]] += rho * (x[:,i,problems.local_index[i]] - z[:,problems.local_index[i]]).detach()
                     x_temp = torch.zeros((num_problem, num_agent, np.sum(num_var)), dtype=torch.float32)
@@ -153,9 +153,14 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                 x_optimizer[i].zero_grad()
 
             precision  = 0
+            x_test = np.zeros_like(z.detach().numpy())
+            for p_id in range(num_problem):
+                for i in range(num_agent):
+                    x_test[p_id, problems.local_index[i]] = x[p_id, i, problems.local_index[i]].detach().numpy()
+
             r_p = lambda_proj(r)
             for p_id in range(num_problem):
-                precision += 1 - np.abs(problems.obj(z[p_id].detach().numpy(),p_id)-obj_truth_result[p_id].fun)/np.abs(obj_truth_result[p_id].fun)
+                precision += 1 - np.abs(problems.obj(x_test[p_id],p_id)-obj_truth_result[p_id].fun)/np.abs(obj_truth_result[p_id].fun)
             precision /= num_problem
             acc.append(precision)
             print("precision: ", precision)
