@@ -131,6 +131,20 @@ class AP_problem:
         for i in range(self.num_agent):
             obj[i] = np.sum(self.local_probs[p_id][i].obj(x[self.local_probs[p_id][i].var_index]))
         return np.sum(obj)  
+    
+    def jac(self, x, p_id):
+        jac = np.zeros((self.num_agent, sum(self.num_var)), dtype=np.float32)
+        #x = x.detach().numpy()
+        for i in range(self.num_agent):
+            jac[i, self.local_probs[p_id][i].var_index] = self.local_probs[p_id][i].jac(x[self.local_probs[p_id][i].var_index])
+        return np.sum(jac, axis=0)
+    
+    def L(self, x, r, z, gamma, p_id):
+        # x is dx, r is lambda, z is dz
+        # x, r, z are all numpy arrays
+        # gamma is a scalar
+        L = self.obj(x, p_id)
+        pass
      
     def opt_solution(self):
         result = []
@@ -138,7 +152,7 @@ class AP_problem:
             con1 = LinearConstraint(self.A, 0, self.C[p_id])
             con2 = LinearConstraint(np.eye(sum(self.num_var)), 0, self.global_ub[p_id])
             x0 = np.abs(np.random.randn(sum(self.num_var)))
-            res = minimize(lambda x : self.obj(x ,p_id), x0,constraints=[con1, con2])
+            res = minimize(lambda x : self.obj(x ,p_id), x0,constraints=[con1, con2], jac=lambda x : self.jac(x, p_id))
             result.append(res)
         return result
     

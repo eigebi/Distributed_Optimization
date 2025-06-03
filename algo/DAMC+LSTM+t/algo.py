@@ -29,9 +29,13 @@ def derive_grad_lambda(problems, x, z, r, if_dz):
     return grad_lambda
 
 def derive_grad_x(problems, x, z, r, is_dz):
-    r_p = lambda_proj(r)
-    # x: (num_agent, num_problem, num_var)
-    grad_x = [problems.gradient_x(x, r_p, i, is_dz=False) for i in range(num_agent)]
+    #r_p = lambda_proj(r)
+    r_p = r
+    if is_dz:
+        input = z
+    else:
+        input = x
+    grad_x = [problems.gradient_x(input, r_p, i, is_dz) for i in range(num_agent)]
     return torch.tensor(grad_x).transpose(1, 0)  # (num_problem, num_agent, num_var)
     
 
@@ -44,8 +48,9 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
     (x_models, lambda_model) = model
     (num_epoch, num_frame, num_iteration, num_var, num_agent, num_con, num_problem, arg_nn) = paras
     if_dz = flags['dz']
+    #if_dz = False
     # in traning, we do not use DAMC
-
+    num_layer = 2
     # data
     obj_truth_result = []
     acc = []
@@ -53,16 +58,32 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
     # collect the objective value of the true solution
     obj_truth_result = problems.opt_solution()
     #    obj_truth_result.append(prob.objective(prob.solve().x.reshape(1,-1)))
+
+
+    # hyperparameters for DAMC
+    M_g = 1
+    sigma = 500
+    L_f = [[problems.local_probs[p][i].L_fi for i in range(num_agent)] for p in range(num_problem)]
+    L_f = np.array(L_f)
+    L_f = np.max(L_f,axis=1)
+    tau = 5
+    rho = (num_agent*tau*L_f)**2+np.sqrt((num_agent*tau*L_f)**4+7*num_agent*num_agent*tau*tau*L_f*L_f*L_f)
+    #rho = 0.005*rho
+    
+    theta = rho*rho/(15*M_g*M_g*(2*rho+7*L_f))
+
+
+
     
     #start training: generate multiple initial point and evolve iteratively
     for epoch in range(num_epoch):
 
         # initialization
         init_x = torch.randn(num_problem, num_agent ,np.sum(num_var))
-        init_r = torch.randn(num_problem, len_lambda)
+        init_r = torch.abs(torch.randn(num_problem, len_lambda))
 
-        hidden_x = [(torch.randn(1, num_problem, arg_nn.hidden_size), torch.randn(1, num_problem, arg_nn.hidden_size)) for _ in range(num_agent)]
-        hidden_lambda = (torch.randn(1, num_problem, arg_nn.hidden_size), torch.randn(1, num_problem, arg_nn.hidden_size)) # (num_layer, batch_size, hidden_size)
+        hidden_x = [(torch.randn(num_layer, num_problem, arg_nn.hidden_size), torch.randn(num_layer, num_problem, arg_nn.hidden_size)) for _ in range(num_agent)]
+        hidden_lambda = (torch.randn(num_layer, num_problem, arg_nn.hidden_size), torch.randn(num_layer, num_problem, arg_nn.hidden_size)) # (num_layer, batch_size, hidden_size)
 
         for x_model in x_models:
             for param in x_model.parameters():
@@ -84,14 +105,23 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                     z_graph[j, n] = 1
         z = torch.tensor(z, dtype=torch.float32)
 
-        rho = 1
-
+   
            
         # train the model
         for frame in range(num_frame):
             for iter in range(num_iteration):
+                k = frame * num_iteration + iter + 1
+                eta = 1/(rho*np.power(k,1/4))
+                eta= 0.000000001
+                eta_ = 1/(rho*np.power(np.maximum(k,0),1/4))
+                #eta = 1
+                beta = (num_agent*tau)**2*L_f/2 + theta+4/(theta*eta_*eta_)
+                beta = 0.5*beta
+                beta = 10000
+
                 r = reserved_r
                 x = reserved_x # to reshape
+                # update lambda via meta-learning
                 if iter % 1 == 1:
                     grad_lambda = derive_grad_lambda(problems, x, z, r, if_dz)
                     delta_lambda, hidden_lambda = lambda_model(grad_lambda, h_s=hidden_lambda)
@@ -101,11 +131,19 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                     r = _r.detach()
                     grad_lambda = torch.tensor(derive_grad_lambda(problems, x, z, r, if_dz), dtype = torch.float32)
                     _r.backward(-grad_lambda, retain_graph=True)
-
+                # update lambda via 1st order gradient
                 # distribtued update of x
+                #r = torch.maximum((torch.tensor(theta)*(torch.cat([-z,z-torch.tensor(problems.global_ub),z @ problems.A.T - problems.C], dim=1)) + r ) / (eta*theta + 1), 0)
                 
+                z_np = z.detach().numpy()
+                x_np = np.concatenate([x[:,i,problems.local_probs[0][i].var_index].detach().numpy() for i in range(num_agent)], axis=1)
+                r = torch.tensor(np.maximum((theta[:,np.newaxis]*np.concatenate([-x_np,x_np-problems.global_ub,np.sum(x.detach().numpy()[:,problems.con_assignment] * problems.A,axis = 2)-problems.C], axis=1) + r.detach().numpy() ) / (eta*theta[:,np.newaxis] + 1), 0),dtype=torch.float32)
+                #r = torch.tensor(np.maximum((theta[:,np.newaxis]*np.concatenate([-z_np,z_np-problems.global_ub,z.detach().numpy()[:,problems.con_assignment]@ problems.A.T - problems.C], axis=1) + r.detach().numpy() ) / (eta*theta[:,np.newaxis] + 1), 0),dtype=torch.float32)
+
                 grad_x = derive_grad_x(problems, x, z, r, if_dz)
-                grad_x += gamma + rho * (x - z)
+                grad_x += gamma + torch.tensor(rho[:,np.newaxis],dtype=torch.float32) * (x - z)
+                
+
 
                 for i in range(num_agent):
                     delta_x,hidden_x[i] = x_models[i](grad_x[:,i,problems.local_index[i]], h_s=hidden_x[i])
@@ -118,23 +156,28 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                     # a little bit complicated, gradient calculation could be out the loop
 
                     grad_x = derive_grad_x(problems, x, z, r, if_dz)
-                    grad_x += gamma + rho * (x - z)
+                    grad_x += gamma + torch.tensor(rho[:,np.newaxis], dtype=torch.float32) * (x - z)
 
                     _x.backward(torch.tensor(grad_x[:,i,problems.local_index[i]]), retain_graph=True)
-
+                    # current L value of agent 0
+                L1 = problems.local_probs[0][0].obj(x[:,0,problems.local_probs[0][0].var_index].detach().numpy())
+                L2 = problems.local_probs[0][1].obj(x[:,0,problems.local_probs[0][1].var_index].detach().numpy())
+                #print("L[0]: ", np.sum(L1),np.sum(L2))  
 
                 # consensus update of gamma and z
-                if iter % 1 == 1:
-                    for i in range(num_agent):
-                        gamma[:,i,problems.local_index[i]] += rho * (x[:,i,problems.local_index[i]] - z[:,problems.local_index[i]]).detach()
+                for i in range(num_agent):
+                        gamma[:,i,problems.local_index[i]] += torch.tensor(rho[:,np.newaxis],dtype=torch.float32) * (x[:,i,problems.local_index[i]] - z[:,problems.local_index[i]]).detach()
+                z = torch.tensor(obj_truth_result[0].x[np.newaxis,:],dtype=torch.float32)
+                if iter % 5 == 5:
                     x_temp = torch.zeros((num_problem, num_agent, np.sum(num_var)), dtype=torch.float32)
                     for i in range(num_agent):
                         x_temp[:,i,problems.local_index[i]] = x[:,i,problems.local_index[i]].detach()
                     for k in range(np.sum(num_var)):
                         _id = z_graph[k,:]
-                        z[:,k] = (torch.sum(gamma[:,_id==1,k].view(num_problem,-1), dim=1) + rho * torch.sum(x_temp[:,_id==1,k].view(num_problem,-1), dim=1)) / (np.sum(_id) * rho)
-                    z = torch.clip(z, torch.zeros(num_problem,np.sum(num_var)), torch.tensor(ub))
-                    print(gamma[0,:,0])
+                        z[:,k] = (torch.sum(gamma[:,_id==1,k].view(num_problem,-1), dim=1) + torch.tensor(rho,dtype=torch.float32) * torch.sum(x_temp[:,_id==1,k].view(num_problem,-1), dim=1)+torch.tensor(beta,dtype=torch.float32) * z[:,k]) / (torch.tensor(beta,dtype=torch.float32) + np.sum(_id) * torch.tensor(rho,dtype=torch.float32))
+                    #z = torch.clip(z, torch.zeros(num_problem,np.sum(num_var)), torch.tensor(ub))
+                    #beta = beta * 1.01
+                    #print(gamma[0,:,0])
 
 
 
@@ -163,7 +206,7 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
                 precision += 1 - np.abs(problems.obj(x_test[p_id],p_id)-obj_truth_result[p_id].fun)/np.abs(obj_truth_result[p_id].fun)
             precision /= num_problem
             acc.append(precision)
-            print("precision: ", precision)
+            print("epoch: ", epoch ,"precision: ", precision)
             #print("delta: ",  [problems[i].objective(reserved_x[i].view(1,-1).detach().numpy()) for i in range(len(problems))], obj_truth_result)
             # r_p = lambda_proj(r)
 
@@ -206,9 +249,9 @@ def my_train_true_gradient(flags, paras, problems, model, optimizer):
 
 
 if __name__ == "__main__":
-    num_var = [25, 25]
+    num_var = [2, 2]
     num_agent = 2
-    num_con = 5
+    num_con = 1
     #local_update = False
     #dx_from_z = False
     flags = {
@@ -229,7 +272,7 @@ if __name__ == "__main__":
 
     num_epoch = 50
     num_iteration = 20
-    num_frame = 500//20
+    num_frame = 20000//20
     class arg_nn:
         hidden_size = 32
         hidden_size_x = 20

@@ -9,7 +9,7 @@ class x_LSTM(nn.Module):
         super(x_LSTM, self).__init__()
         self.len_x = len_x
         self.arg_nn = arg_nn
-        self.net_x = nn.LSTM(input_size=len_x, hidden_size=arg_nn.hidden_size, batch_first=True)
+        self.net_x = nn.LSTM(input_size=len_x, hidden_size=arg_nn.hidden_size, num_layers=2, batch_first=True)
         self.net_fc = nn.Linear(arg_nn.hidden_size, len_x)
 
     # r represents lambda
@@ -28,8 +28,8 @@ class x_LSTM(nn.Module):
         return out_x, out_hidden
     
     def init_hidden(self):
-        return (torch.zeros(1, 1, self.arg_nn.hidden_size),
-                torch.zeros(1, 1, self.arg_nn.hidden_size))
+        return (torch.zeros(2, 1, self.arg_nn.hidden_size),
+                torch.zeros(2, 1, self.arg_nn.hidden_size))
 
     
 class lambda_LSTM(nn.Module):
