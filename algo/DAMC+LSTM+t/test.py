@@ -9,6 +9,8 @@ def lambda_proj(r):
     _r = np.where(r < -1, -alpha * r - (alpha - 1), r)
     _r = np.where(r > 1, alpha * r - (alpha - 1), _r)
     _r = np.where((r >= -1) & (r <= 1), r ** alpha, _r)
+    # using softplus instead of 
+    #return np.log(1+np.exp(r)) 
     return _r
 
 def derive_grad_lambda(z, r):
@@ -17,6 +19,7 @@ def derive_grad_lambda(z, r):
     dr = np.where(r < -1, -alpha, 0)
     dr = np.where(r > 1, alpha, dr)
     dr = np.where((r >= -1) & (r <= 1), alpha*r**(alpha-1), dr)
+    #dr = 1-1/(1+np.exp(r))
     partial_grad_lambda_p = np.concatenate([-z,z-6,np.sum(z, keepdims=True)-1], axis=0)
     grad_lambda = dr * partial_grad_lambda_p 
     return grad_lambda
@@ -28,6 +31,7 @@ def derive_grad_lambda_with_x(x, r):
     dr = np.where(r < -1, -alpha, 0)
     dr = np.where(r > 1, alpha, dr)
     dr = np.where((r >= -1) & (r <= 1), alpha*r**(alpha-1), dr)
+    #dr = 1-1/(1+np.exp(r))
     partial_grad_lambda_p = np.array([-x1[0],-x2[1],x1[0]-6,x2[1]-6,x2[0]+x2[1]-1],dtype=np.float32)
     grad_lambda = dr * partial_grad_lambda_p 
     return grad_lambda
@@ -37,7 +41,7 @@ if __name__ == "__main__":
     jac = [lambda x: 2*x, lambda x: 2*(x-5)]
     obj = [lambda x: -1/(1+np.exp(-2*(x-3))), lambda x: -1/(1+np.exp(-1*(x-10)))]
     jac = [lambda x: obj[0](x)*(1-obj[0](x)), lambda x: obj[1](x)*(1-obj[1](x))]
-    #jac = [lambda x:-1/(x+1)/np.log(1+1),lambda x:-1/(x+1)/np.log(5+1)]
+    jac = [lambda x:-1/(x+1)/np.log(1+1),lambda x:-1/(x+1)/np.log(5+1)]
     # add constraints x1+x2 < 1, this constraint is assigned to agent 1
     r = np.zeros(5, dtype=np.float32)  # Initialize r (lambda)
     z = np.array([0, 0], dtype=np.float32)  # Example z(k) values
@@ -56,16 +60,23 @@ if __name__ == "__main__":
     lambda_model = x_LSTM(5, arg_nn)  # Create LSTM model for lambda
     lambda_optimizer = torch.optim.Adam(lambda_model.parameters(), lr=0.001)
     reserved_r = r
-    LSTM_lambda = False
+    LSTM_lambda = True
 
 
 
     x = [torch.randn(1,1), torch.randn(1,2)]  # Initialize x for each model
+    num_layer = 2
+    num_problem = 1
     for k in range(10):
         r = np.zeros(5, dtype=np.float32)  # Initialize r (lambda)
         z = np.array([0, 0], dtype=np.float32)  # Example z(k) values
         gamma = [np.zeros([i], dtype=np.float32) for i in len_x]  # Initialize gamma
         x = [torch.randn(1,1), torch.randn(1,2)]
+
+        hidden_x = [(torch.randn(num_layer, num_problem, arg_nn.hidden_size), torch.randn(num_layer, num_problem, arg_nn.hidden_size)) for _ in range(2)]
+        hidden_lambda = (torch.randn(num_layer, num_problem, arg_nn.hidden_size), torch.randn(num_layer, num_problem, arg_nn.hidden_size)) # (num_layer, batch_size, hidden_size)
+
+
         for f in range(500):
             for j in range(10):
                 if not LSTM_lambda:
@@ -75,11 +86,13 @@ if __name__ == "__main__":
                 else:
                 # alternatively, using LSTM
                     r = reserved_r
-                    grad_lambda = derive_grad_lambda(z, r)
-                    delta_r, _ = lambda_model(torch.tensor(grad_lambda[np.newaxis,:], dtype=torch.float32))
+                    grad_lambda = 10*derive_grad_lambda(z, r)
+                    #grad_lambda = derive_grad_lambda_with_x(x,r)
+                    delta_r, hidden_lambda_temp = lambda_model(torch.tensor(grad_lambda[np.newaxis,:], dtype=torch.float32), hidden_lambda)
+                    hidden_lambda = (hidden_lambda_temp[0].detach(), hidden_lambda_temp[1].detach())
                     _r = torch.tensor(r,dtype=torch.float32) + delta_r[0,0]
                     r = _r.detach().numpy()
-                    grad_lambda = derive_grad_lambda(z, r)
+                    grad_lambda = 10*derive_grad_lambda(z, r)
                     #grad_lambda = derive_grad_lambda_with_x(x,r)
                     _r.unsqueeze(0).backward(-torch.tensor(grad_lambda[np.newaxis,:],dtype=torch.float32), retain_graph=True)
                     reserved_r = r
@@ -124,9 +137,9 @@ if __name__ == "__main__":
                 x_optimizers[i].zero_grad()
             lambda_optimizer.step()
             lambda_optimizer.zero_grad()
-            #print("x:",x,"lambda:",r)
-            #print("z:", z," gamma:", gamma)
-            print("obj: ", obj[0](x[0].numpy())+obj[1](x[1][:,1].numpy()))
+            print("x:",x,"lambda:",r)
+            print("z:", z," gamma:", gamma)
+            #print("obj: ", obj[0](x[0].numpy())+obj[1](x[1][:,1].numpy()))
 
     for k in range(6):
         r = np.zeros(5, dtype=np.float32)  # Initialize r (lambda)
