@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from utils.nn_CLSTM import x_LSTM
+from nn_CLSTM import x_LSTM
 
 ub = 3
 
@@ -27,7 +27,7 @@ def derive_grad_lambda(z, r):
 def derive_grad_lambda_with_x(x, r):
     # x, z: (num_problem, num_var)
     x1 = x[0][0]
-    x2 = x[1][0]
+    x2 = x[1][:,0]
     alpha = 2
     dr = np.where(r < -1, -alpha, 0)
     dr = np.where(r > 1, alpha, dr)
@@ -40,18 +40,19 @@ def derive_grad_lambda_with_x(x, r):
 
 if __name__ == "__main__":
     torch.set_default_dtype(torch.float32)
-    #obj = [lambda x: (x+2)**2, lambda x: (x-5)**2]
+    obj = [lambda x: (x+2)**2, lambda x: (x-5)**2]
     jac = [lambda x: 2*(x+2), lambda x: 2*(x-5)]
-    obj = [lambda x: 10/(1+np.exp(-2*(x-3))), lambda x: 10/(1+np.exp(-1*(x-10)))]
+    obj = [lambda x: 1/(1+np.exp(-2*(x-3))), lambda x: 1/(1+np.exp(-1*(x-10)))]
     jac = [lambda x: -obj[0](x)*(1-obj[0](x)), lambda x: -obj[1](x)*(1-obj[1](x))]
     #jac = [lambda x:-1/(x+1)/np.log(1+1),lambda x:-1/(x+1)/np.log(5+1)]
-    # add constraints x1+x2 < 1, this constraint is assigned to agent 1
+    # add constraints x1+x2 < ub, this constraint is assigned to agent 1
     #r = np.zeros(5, dtype=np.float32)  # Initialize r (lambda)
     #z = np.array([0.5, 0.5], dtype=np.float32)  # Example z(k) values
     len_x = [1,2]
+    len_lambda = 5  # Number of lambda variables
     #gamma = [np.zeros([i], dtype=np.float32) for i in len_x]  # Initialize gamma
-    rho = 20
-    beta = 400
+    rho = 50
+    beta = 40
 
     
 
@@ -60,13 +61,13 @@ if __name__ == "__main__":
         hidden_size_x = 20
     
     con_assignment = np.array([1])  # Assign constraints to agents
-    x_models = [x_LSTM(i+1,arg_nn) for i in range(2)]  # Create two LSTM models for x1 and x2
-    x_optimizers = [torch.optim.Adam(x_models[i].parameters(), lr=0.004) for i in range(2)]  # Create optimizers for each model
+    x_models = [x_LSTM(1,arg_nn) for _ in range(2)]  # Create two LSTM models for x1 and x2
+    x_optimizers = [torch.optim.Adam(x_models[i].parameters(), lr=0.001) for i in range(2)]  # Create optimizers for each model
     #z = lambda x: np.exp(-x) + 2 + 1 * np.sin(x)  # Example function for z(k)
-    lambda_model = x_LSTM(5, arg_nn)  # Create LSTM model for lambda
+    lambda_model = x_LSTM(1, arg_nn)  # Create LSTM model for lambda
     lambda_optimizer = torch.optim.Adam(lambda_model.parameters(), lr=0.001)
     #reserved_r = r
-    LSTM_lambda = False
+    LSTM_lambda = True  # Use LSTM for lambda updates
 
 
 
@@ -76,19 +77,19 @@ if __name__ == "__main__":
     num_epoch = 50
     num_iter = 500
     num_frame = 30
-    zt = 5 # update frequency for z and gamma
+    zt = 10 # update frequency for z and gamma
 
     for k in range(num_epoch):
         r = np.zeros(5, dtype=np.float32)  # Initialize r (lambda)
         reserved_r = r
-        x = [np.random.randn(1,1).astype(np.float32), np.random.randn(1,2).astype(np.float32)] # initialize x for each model
+        x = [np.random.randn(1,1).astype(np.float32), np.random.randn(2,1).astype(np.float32)] # initialize x for each model
         reserved_x = x
-        z = np.array([2, 0.5], dtype=np.float32)  # Example z(k) values
+        z = np.array([-2, -0.5], dtype=np.float32)  # Example z(k) values
         gamma = [np.zeros([i], dtype=np.float32) for i in len_x]  # Initialize gamma
         
 
-        hidden_x = [(torch.randn(num_layer, num_problem, arg_nn.hidden_size), torch.randn(num_layer, num_problem, arg_nn.hidden_size)) for _ in range(2)]
-        hidden_lambda = (torch.randn(num_layer, num_problem, arg_nn.hidden_size), torch.randn(num_layer, num_problem, arg_nn.hidden_size)) # (num_layer, batch_size, hidden_size)
+        hidden_x = [(torch.randn(num_layer, len_x[i], arg_nn.hidden_size), torch.randn(num_layer, len_x[i], arg_nn.hidden_size)) for i in range(2)]
+        hidden_lambda = (torch.randn(num_layer, len_lambda, arg_nn.hidden_size), torch.randn(num_layer, len_lambda, arg_nn.hidden_size)) # (num_layer, batch_size, hidden_size)
 
 
         for f in range(num_iter):
@@ -106,16 +107,20 @@ if __name__ == "__main__":
                 
 
                 grad_x = np.zeros_like(x[1])
-                grad_x[:,1] = jac[1](x[1][:,1]) + (-r[1] + r[3]+ r[4] + gamma[1][1] + rho * (x[1][:,1] - z[1]))
-                grad_x[:,0] = r[4] + gamma[1][0] + rho * (x[1][:,0] - z[0])
+                grad_x[1,:] = jac[1](x[1][1,:]) + (-r[1] + r[3]+ r[4] + gamma[1][1] + rho * (x[1][1,:] - z[1]))
+                grad_x[0,:] = r[4] + gamma[1][0] + rho * (x[1][0,:] - z[0]) 
                 delta, hidden_temp = x_models[1](torch.tensor(grad_x), hidden_x[1])
                 hidden_x[1] = (hidden_temp[0].detach(), hidden_temp[1].detach())
                 _x = torch.tensor(x[1]) + delta[0]
                 x[1] = _x.detach().numpy()
                 grad_x = np.zeros_like(x[1])
-                grad_x[:,1] = jac[1](x[1][:,1]) + (-r[1] + r[3]+ r[4] + gamma[1][1] + rho * (x[1][:,1] - z[1]))
-                grad_x[:,0] = r[4] + gamma[1][0] + rho * (x[1][:,0] - z[0]) + jac[0](x[1][:,0])
+                grad_x[1,:] = jac[1](x[1][1,:]) + (-r[1] + r[3]+ r[4] + gamma[1][1] + rho * (x[1][1,:] - z[1]))
+                grad_x[0,:] = r[4] + gamma[1][0] + rho * (x[1][0,:] - z[0])
+
+
+                #loss = -obj[0](_x[:,0]) - obj[1](_x[:,1]) + torch.tensor(gamma[1])@(_x[:,1]-torch.tensor(z)) + rho/2*torch.norm(_x[:,1]-torch.tensor(z))**2
                 _x.backward(torch.tensor(grad_x), retain_graph=True)
+                #loss.backward(retain_graph=True)
 
                 
 
@@ -124,9 +129,9 @@ if __name__ == "__main__":
                 # update z and gamma
                 if j % zt == 0:
                     gamma[0] = gamma[0] + rho * (x[0] - z[0])[0]
-                    gamma[1] = gamma[1] + rho * (x[1] - z)[0]
-                    #z[0] = (gamma[0] + rho * x[0] + gamma[1][0] + rho * x[1][:,0]+ beta * z[0])[0,0] / (2 * rho + beta)
-                    #z[1] = (gamma[1][1] + rho * x[1][:,1] + beta * z[1])[0] / (rho + beta)
+                    gamma[1] = gamma[1] + rho * (x[1] - z[:,np.newaxis])[:,0]
+                    z[0] = (gamma[0] + rho * x[0] + gamma[1][0] + rho * x[1][0,:]+ beta * z[0])[0,0] / (2 * rho + beta)
+                    z[1] = (gamma[1][1] + rho * x[1][1,:] + beta * z[1])[0] / (rho + beta)
 
                 # update lambda
                 if j % zt == 0:
@@ -138,13 +143,13 @@ if __name__ == "__main__":
                         r = reserved_r
                         grad_lambda = derive_grad_lambda(z, r)
                         #grad_lambda = derive_grad_lambda_with_x(x,r)
-                        delta_r, hidden_lambda_temp = lambda_model(torch.tensor(grad_lambda[np.newaxis,:]), hidden_lambda)
+                        delta_r, hidden_lambda_temp = lambda_model(torch.tensor(grad_lambda[:,np.newaxis]), hidden_lambda)
                         hidden_lambda = (hidden_lambda_temp[0].detach(), hidden_lambda_temp[1].detach())
-                        _r = torch.tensor(r) + 0.5 * delta_r[0,0]
+                        _r = torch.tensor(r) + 0.5 * delta_r[0,:,0]
                         r = _r.detach().numpy()
                         grad_lambda = derive_grad_lambda(z, r)
                         #grad_lambda = derive_grad_lambda_with_x(x,r)
-                        _r.unsqueeze(0).backward(-torch.tensor(grad_lambda[np.newaxis,:]), retain_graph=True)
+                        _r.unsqueeze(1).backward(-torch.tensor(grad_lambda[:,np.newaxis]), retain_graph=True)
                         reserved_r = r
                         r = lambda_proj(r)
 
@@ -191,12 +196,13 @@ if __name__ == "__main__":
                 else:
                 # alternatively, using LSTM
                     r = reserved_r
-                    grad_lambda = derive_grad_lambda(z, r)
+                    #grad_lambda = derive_grad_lambda(z, r)
+                    grad_lambda = derive_grad_lambda_with_x(x,r)
                     delta_r, _ = lambda_model(torch.tensor(grad_lambda[np.newaxis,:], dtype=torch.float32))
                     _r = torch.tensor(r,dtype=torch.float32) + delta_r[0,0]
                     r = _r.detach().numpy()
-                    grad_lambda = derive_grad_lambda(z, r)
-                    #grad_lambda = derive_grad_lambda_with_x(x,r)
+                    #grad_lambda = derive_grad_lambda(z, r)
+                    grad_lambda = derive_grad_lambda_with_x(x,r)
                     _r.unsqueeze(0).backward(-torch.tensor(grad_lambda[np.newaxis,:],dtype=torch.float32), retain_graph=True)
                     reserved_r = r
                     r = lambda_proj(r)
