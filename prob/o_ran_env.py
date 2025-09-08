@@ -2,6 +2,10 @@ from dataclasses import dataclass
 import numpy as np
 from typing import Tuple, Dict, Any
 
+from scipy.optimize import minimize
+from scipy.optimize import LinearConstraint
+from scipy.linalg import block_diag
+
 @dataclass
 class ScenarioCfg:
     area_size_m: Tuple[float, float] = (2000.0, 2000.0)
@@ -72,7 +76,7 @@ def compute_bar_g_and_alpha(G: np.ndarray,
 
     alpha = np.zeros((B, B))
     for b in range(B):
-        users_in_b = np.where(ue2bs == b)[0]
+        users_in_b = np.where(ue2bs == b)[0] # if no user in b, all the users cause interference to b
         if users_in_b.size == 0:
             avg_g = np.mean(G, axis=0)
             for bp in range(B):
@@ -85,9 +89,12 @@ def compute_bar_g_and_alpha(G: np.ndarray,
                 alpha[b, bp] = Pmax_W[bp] * float(avg_coupling[bp])
     return bar_g, alpha, U_sb
 
+from dataclasses import dataclass
+
 @dataclass
 class QoSParams:
-    Rreq_URLLC_perBS: np.ndarray  # (B,)
+    Rmin_eMBB: float
+    Rreq_URLLC_perBS: np.ndarray
 
 @dataclass
 class ProblemData:
@@ -109,7 +116,7 @@ class RANProblem:
         self.S, self.B = data.a_sb.shape
 
     def cell_load(self, rho: np.ndarray) -> np.ndarray:
-        return np.sum(self.d.a_sb * rho, axis=0)
+        return np.sum(self.d.a_sb * rho, axis=0) # spectrum load per BS
 
     def interference(self, ell: np.ndarray) -> np.ndarray:
         return self.d.alpha.dot(ell) + self.d.sigma2_W
@@ -160,6 +167,7 @@ class RANProblem:
         J_g_rho = d.a_sb.copy()
         J_g_eta = d.a_sb.copy()
 
+        h_H = np.sum(R[Sidx['H'], :]) - d.qos.Rmin_eMBB
         h_L = R[Sidx['L'], :] - d.qos.Rreq_URLLC_perBS
 
         ell = self.cell_load(rho); I = self.interference(ell)
@@ -170,6 +178,14 @@ class RANProblem:
         own_term = d.W * Phi
         Splus = 1.0 + S_like
         coeff = d.W * (1.0/np.log(2.0)) * ( - (eta * d.Pmax_W[None,:] * d.bar_g) / (I[None,:]**2) ) / Splus
+
+        grad_hH_eta = np.zeros_like(eta)
+        grad_hH_rho = np.zeros_like(rho)
+        G_couple_H_per_b = coeff[Sidx['H'], :] * rho[Sidx['H'], :]
+        coupling_H_per_c = d.alpha.T.dot(G_couple_H_per_b)
+        grad_hH_eta[Sidx['H'], :] = dR_deta[Sidx['H'], :]
+        grad_hH_rho[Sidx['H'], :] += own_term[Sidx['H'], :]
+        grad_hH_rho -= d.a_sb * coupling_H_per_c[None, :]
 
         B = self.B
         grad_hL_eta = np.zeros((B, self.S, B))
@@ -182,10 +198,12 @@ class RANProblem:
 
         return dict(
             g_rho=g_rho, g_eta=g_eta, J_g_rho=J_g_rho, J_g_eta=J_g_eta,
-            h_L=h_L, grad_hL_eta=grad_hL_eta, grad_hL_rho=grad_hL_rho
+            h_H=h_H, h_L=h_L,
+            grad_hH_eta=grad_hH_eta, grad_hH_rho=grad_hH_rho,
+            grad_hL_eta=grad_hL_eta, grad_hL_rho=grad_hL_rho
         )
 
-def build_demo_instance(N=6, K=120, slice_probs=(0.5, 0.3, 0.2), seed=2025):
+def build_demo_instance(N=6, K=40, slice_probs=(0.5, 0.3, 0.2), seed=2025):
     cfg = ScenarioCfg(seed=seed)
     bs_xy, ue_xy = generate_ppp_positions(N, K, cfg.area_size_m, seed=cfg.seed)
     G = gain_matrix_from_positions(bs_xy, ue_xy, cfg)
@@ -209,16 +227,20 @@ def build_demo_instance(N=6, K=120, slice_probs=(0.5, 0.3, 0.2), seed=2025):
 
     noise_W, noise_dBm = thermal_noise_power(cfg.bandwidth_Hz, cfg.noise_figure_dB)
 
-    L_bits = 1024.0
+    L_bits = 256.0
     lam = 30.0
-    tau = 0.005
+    tau = 0.01
     Rreq_L_perBS = np.zeros(B)
     for b in range(B):
         U_L_b = np.where((ue2slice == 1) & (ue2bs == b))[0]
         Lambda_L_b = len(U_L_b) * lam
         Rreq_L_perBS[b] = L_bits * (Lambda_L_b + 1.0 / tau)
 
-    qos = QoSParams(Rreq_URLLC_perBS=Rreq_L_perBS)
+    SNR_opt = (Pmax_W * np.max(bar_g, axis=0)) / noise_W
+    Rcap_per_bs = cfg.bandwidth_Hz * np.log2(1.0 + np.maximum(SNR_opt, 1e-12))
+    Rmin_eMBB = 0.10 * np.sum(Rcap_per_bs)
+
+    qos = QoSParams(Rmin_eMBB=Rmin_eMBB, Rreq_URLLC_perBS=Rreq_L_perBS)
 
     data = ProblemData(
         W=cfg.bandwidth_Hz,
@@ -236,15 +258,119 @@ def build_demo_instance(N=6, K=120, slice_probs=(0.5, 0.3, 0.2), seed=2025):
     problem = RANProblem(data)
 
     info = dict(cfg=cfg, bs_xy=bs_xy, ue_xy=ue_xy, G=G, ue2bs=ue2bs, ue2slice=ue2slice,
-                U_sb=U_sb, bar_g=bar_g, alpha=alpha, noise_W=noise_W, noise_dBm=noise_dBm)
+                U_sb=U_sb, bar_g=bar_g, alpha=alpha, noise_W=noise_W, noise_dBm=noise_dBm,
+                Rmin_eMBB=Rmin_eMBB, Rreq_L_perBS=Rreq_L_perBS)
     return problem, info
+
+
+
+def pack_vars(rho, eta): return np.concatenate([rho.flatten(), eta.flatten()])
+def unpack_vars(x):
+    n=S*B; rho=x[:n].reshape(S,B); eta=x[n:].reshape(S,B); return rho,eta
+from scipy.optimize import Bounds, NonlinearConstraint
+
+
+
 
 if __name__ == '__main__':
     prob, info = build_demo_instance(N=6, K=120, slice_probs=(0.5, 0.3, 0.2), seed=2025)
     S, B = prob.S, prob.B
     rho0 = np.where(prob.d.a_sb > 0, 1.0 / np.maximum(1, np.sum(prob.d.a_sb, axis=0, keepdims=True)), 0.0)
     eta0 = rho0.copy()
-    f0, grad_rho0, grad_eta0, extras0 = prob.objective_and_grad(rho0, eta0)
-    cons0 = prob.constraints_and_jacobians(rho0, eta0)
-    print("Objective:", f0)
-    print("h_L:", cons0['h_L'])
+    x0 = pack_vars(rho0, eta0)
+
+    lambda_util = 1.0  # 只缩放效用(∑w log(ε+R))，成本项不缩放
+
+    def objective_with_lambda(x):
+        rho,eta = unpack_vars(x)
+        f_base, grad_rho_base, grad_eta_base, extras = prob.objective_and_grad(rho, eta)
+        # 将 base 梯度拆回： grad_base = grad_util - grad_cost
+        cost_grad_eta = prob.d.beta[:,None]*prob.d.Pmax_W[None,:]
+        cost_grad_rho = prob.d.delta[:,None]*prob.d.W
+        # 目标：lambda*util - cost
+        util = extras['util']
+        f_lambda = (lambda_util*np.sum(prob.d.weights*util)
+                    - np.sum(prob.d.beta[:,None]*eta*prob.d.Pmax_W[None,:])
+                    - np.sum(prob.d.delta[:,None]*rho*prob.d.W))
+        # 梯度：lambda*grad_util - grad_cost = lambda*(grad_base+cost_grad) - cost_grad
+        grad_rho = lambda_util*(grad_rho_base + cost_grad_rho) - cost_grad_rho
+        grad_eta = lambda_util*(grad_eta_base + cost_grad_eta) - cost_grad_eta
+        grad = pack_vars(grad_rho, grad_eta)
+        return -f_lambda, -grad  # SciPy 是最小化
+
+    # bounds: 0 ≤ rho ≤ a, 0 ≤ eta ≤ a
+    lb = np.zeros_like(x0)
+    ub = np.concatenate([prob.d.a_sb.flatten(), prob.d.a_sb.flatten()])
+    bounds = Bounds(lb, ub)
+
+    # per-BS 资源约束
+    def con_g_rho(x):
+        rho,eta = unpack_vars(x); return prob.constraints_and_jacobians(rho,eta)['g_rho']
+    def jac_g_rho(x):
+        rho,eta = unpack_vars(x); J = prob.constraints_and_jacobians(rho,eta)['J_g_rho']
+        J_full = np.zeros((B, 2*S*B))
+        for b in range(B):
+            for s in range(S):
+                J_full[b, s*B+b] = J[s,b]
+        return J_full
+    def con_g_eta(x):
+        rho,eta = unpack_vars(x); return prob.constraints_and_jacobians(rho,eta)['g_eta']
+    def jac_g_eta(x):
+        rho,eta = unpack_vars(x); J = prob.constraints_and_jacobians(rho,eta)['J_g_eta']
+        J_full = np.zeros((B, 2*S*B))
+        for b in range(B):
+            for s in range(S):
+                J_full[b, S*B + (s*B+b)] = J[s,b]
+        return J_full
+    nlc_g_rho = NonlinearConstraint(con_g_rho, -np.inf*np.ones(B), np.zeros(B), jac=jac_g_rho)
+    nlc_g_eta = NonlinearConstraint(con_g_eta, -np.inf*np.ones(B), np.zeros(B), jac=jac_g_eta)
+
+    # eMBB sum-rate
+    def con_h_H(x):
+        rho,eta = unpack_vars(x); return np.array([prob.constraints_and_jacobians(rho,eta)['h_H']])
+    def jac_h_H(x):
+        rho,eta = unpack_vars(x); cons=prob.constraints_and_jacobians(rho,eta)
+        Jrho, Jeta = cons['grad_hH_rho'], cons['grad_hH_eta']
+        J_full = np.zeros((1, 2*S*B))
+        for s in range(S):
+            for b in range(B):
+                J_full[0, s*B+b] = Jrho[s,b]
+                J_full[0, S*B + (s*B+b)] = Jeta[s,b]
+        return J_full
+    nlc_h_H = NonlinearConstraint(con_h_H, np.zeros(1), np.inf*np.ones(1), jac=jac_h_H)
+
+    # URLLC per-BS
+    def con_h_L(x):
+        rho,eta = unpack_vars(x); return prob.constraints_and_jacobians(rho,eta)['h_L']
+    def jac_h_L(x):
+        rho,eta = unpack_vars(x); cons=prob.constraints_and_jacobians(rho,eta)
+        Jrho, Jeta = cons['grad_hL_rho'], cons['grad_hL_eta']  # (B,S,B)
+        J_full = np.zeros((B, 2*S*B))
+        for b in range(B):
+            for s in range(S):
+                for c in range(B):
+                    J_full[b, s*B + c] += Jrho[b,s,c]
+                    J_full[b, S*B + (s*B+c)] += Jeta[b,s,c]
+        return J_full
+    nlc_h_L = NonlinearConstraint(con_h_L, np.zeros(B), np.inf*np.ones(B), jac=jac_h_L)
+
+    # solve
+    res = minimize(fun=lambda x: objective_with_lambda(x)[0],
+                x0=x0,
+                jac=lambda x: objective_with_lambda(x)[1],
+                method='trust-constr',
+                bounds=bounds,
+                constraints=[nlc_g_rho, nlc_g_eta, nlc_h_H, nlc_h_L],
+                options=dict(verbose=3, maxiter=20000, xtol=1e-8, gtol=1e-2))
+    
+
+    rho_opt, eta_opt = unpack_vars(res.x)
+    cons_final = prob.constraints_and_jacobians(rho_opt, eta_opt)
+    print("\n=== Optimization result ===")
+    print("success:", res.success, "| status:", res.status)
+    print("message:", res.message)
+    print("final objective (max):", -res.fun)
+    print("max g_rho (≤0):", np.max(cons_final['g_rho']))
+    print("max g_eta (≤0):", np.max(cons_final['g_eta']))
+    print("h_H (≥0):", cons_final['h_H'])
+    print("min h_L (≥0):", np.min(cons_final['h_L']))
