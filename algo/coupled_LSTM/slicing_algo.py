@@ -5,6 +5,50 @@ import torch
 import numpy as np
 from matplotlib import pyplot as plt
 
+sigma = 50 # admm penalty parameter
+
+def dcon_x(x,r,Sidx):
+    if Sidx == 0:
+        return jac_h_H(x)*r
+    elif Sidx == 1:
+        return [r@jac_h_L(x)]
+    else:
+        return [r[:prob.B]@jac_g_rho(x) + r[prob.B:]@jac_g_eta(x)]
+    
+def DL_lambda(x,Sidx):
+    if Sidx == 0:
+        return con_h_H(x)
+    elif Sidx == 1:
+        return con_h_L(x)
+    else:
+        g_rho, g_eta = con_g_rho(x), con_g_eta(x)
+        return np.array([g_rho, g_eta], dtype=object)
+    
+def local_grad_lambda(x,z,r,num_agent, prob):
+    B=prob.d.B
+    grad_lambda = []
+    for i in range(num_agent):
+        local_var = z.copy()
+        local_var[i] = x[i]
+        local_var = np.concatenate([local_var[:,:B].flatten(),local_var[:,B:].flatten()])
+        grad_lambda.append(DL_lambda(local_var,i))
+    return grad_lambda
+
+
+def local_grad_x(x,z,r,gamma,num_agent,prob):
+    B=prob.B
+    grad_x = []
+    for i in range(num_agent):
+        local_var = z.copy()
+        local_var[i] = x[i]
+        local_var = np.concatenate([local_var[:,:B].flatten(),local_var[:,B:].flatten()])
+        _, grad = objective_with_lambda(local_var)
+        grad = np.concatenate(unpack_vars(grad), axis=1)[i]
+        temp_dcon_x = np.concatenate(unpack_vars(dcon_x(local_var,r[i].numpy(),i)[0]), axis=1)
+        grad += gamma[i] + sigma*(x[i]-z[i]) + temp_dcon_x[i]
+        grad_x.append(grad[:,np.newaxis])
+    return grad_x
+
 
 
 def lambda_proj(r):
@@ -63,12 +107,13 @@ def my_train_true_gradient(paras, problems, models, optimizers):
     (x_models, lambda_models) = model
     (num_epoch, num_frame, num_iteration, num_var, num_agent, num_con, num_problem, arg_nn) = paras
     num_layer = 2
+    zt = 10  # update frequency of z
     GT = []
     acc = []
     for epoch in range(num_epoch):
 
-        init_x = torch.randn(1, num_agent, num_var)
-        init_r = [torch.abs(torch.randn(1, len_lambda[i])) for i in range(num_agent)]  # ensure non-negative
+        init_x = torch.abs(torch.randn(num_agent, num_var))
+        init_r = [torch.abs(torch.randn(len_lambda[i])) for i in range(num_agent)]  # ensure non-negative
 
         for x_model in x_models:
             for param in x_model.parameters():
@@ -80,23 +125,37 @@ def my_train_true_gradient(paras, problems, models, optimizers):
         reserved_x = init_x
         reserved_r = init_r
 
-        gamma = torch.zeros((1, num_agent, num_var), dtype=torch.float32)
+        gamma = torch.zeros((num_agent, num_var), dtype=torch.float32)
 
-        z = np.random.randn(1, num_agent, num_agent * num_var)  # random noise for constraint
-        z = z / np.sum(z, axis= 1)
+        z = np.abs(np.random.randn( num_agent,  num_var))  # random noise for constraint
+        #z = z / np.sum(z, axis= 1)
         z = torch.tensor(z, dtype=torch.float32)
 
-        for frame in range(num_frame):
-            for iter in range(num_iteration):
-                k = frame * num_iteration + iter + 1
-                r = reserved_r
-                x = reserved_x
+        hidden_x = [(torch.randn(num_layer, 1, arg_nn.hidden_size), torch.randn(num_layer, 1, arg_nn.hidden_size)) for _ in range(num_agent)]
+        hidden_lambda = [(torch.randn(num_layer, 1, arg_nn.hidden_size), torch.randn(num_layer, 1, arg_nn.hidden_size)) for i in range(num_agent)]
 
-                if iter % 1 ==1:
-                    grad_lambda = None
-                    # process grad_lambda
-                    for i in range(num_agent):
-                        delta_lambda, hidden_lambda = lambda_models[i](grad_lambda, None)
+        for f in range(num_iteration):
+            for j in range(num_frame):
+                x = reserved_x
+                r = reserved_r
+                grad_x = local_grad_x(x.numpy(), z.numpy(), r, gamma.numpy(), num_agent, problems)
+                _x = []
+                for s in range(num_agent):
+                    delta, hidden_temp = x_models[s](torch.tensor(grad_x[s], dtype=torch.float32), hidden_x[s])
+                    hidden_x[s] = (hidden_temp[0].detach(), hidden_temp[1].detach())
+                    temp_new_x = torch.relu(x[s] + delta[:,0,0])
+                    _x.append(temp_new_x)
+                    x[s] = temp_new_x.detach()
+                grad_x = local_grad_x(x.numpy(), z.numpy(), r, gamma.numpy(), num_agent, problems)
+                for s in range(num_agent):
+                    _x[s].backward(torch.tensor(grad_x[s][:,0], dtype=torch.float32), retain_graph=True)
+
+                if j % zt ==0 :
+                    for s in range(num_agent):
+                        gamma[s] = gamma[s] + sigma * (x[s] - z[s])
+                    z = gamma+ sigma * x
+                    z = z / (num_agent * sigma)
+                    z = torch.relu(z)
 
 
 
@@ -203,7 +262,7 @@ if __name__ == "__main__":
                 method='trust-constr',
                 bounds=bounds,
                 constraints=[nlc_g_rho, nlc_g_eta, nlc_h_H, nlc_h_L],
-                options=dict(verbose=3, maxiter=10000, xtol=1e-4, gtol=1e-2)) # option to be determined
+                options=dict(verbose=3, maxiter=100, xtol=1e-4, gtol=1e-2)) # option to be determined
     
     rho_opt, eta_opt = unpack_vars(res.x)
     cons_final = prob.constraints_and_jacobians(rho_opt, eta_opt)
@@ -215,9 +274,9 @@ if __name__ == "__main__":
         hidden_size_x = 20
 
     
-    x_models = [x_LSTM(2*B, arg_nn) for _ in range(S)]
-    len_lambda = [1, B, 2]
-    lambda_models = [lambda_LSTM(len_lambda[i], arg_nn) for i in range(S)]
+    x_models = [x_LSTM(1, arg_nn) for _ in range(S)]
+    len_lambda = [1, B, 2*B]
+    lambda_models = [x_LSTM(1, arg_nn) for _ in range(S)]
 
     x_optimizers = [torch.optim.Adam(x_models[i].parameters(), lr=0.004) for i in range(S)]
     lambda_optimizers = [torch.optim.Adam(lambda_models[i].parameters(), lr=0.004) for i in range(S)]

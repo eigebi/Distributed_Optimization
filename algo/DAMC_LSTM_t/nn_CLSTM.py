@@ -15,7 +15,7 @@ class x_LSTM(nn.Module):
     # r represents lambda
     def forward(self, dx, h_s = None):
         # Reshape x and lambda to match the input size of the LSTM
-        dx = dx[torch.newaxis,:,:]
+        dx = dx[:,:,torch.newaxis]
        # Add sequence dimension (batch, seq_len=1, features)
         if h_s is None:
             out_temp = self.net_x(dx)

@@ -361,7 +361,7 @@ if __name__ == '__main__':
                 method='trust-constr',
                 bounds=bounds,
                 constraints=[nlc_g_rho, nlc_g_eta, nlc_h_H, nlc_h_L],
-                options=dict(verbose=3, maxiter=20000, xtol=1e-8, gtol=1e-2))
+                options=dict(verbose=3, maxiter=20000, xtol=1e-4, gtol=1e-2, initial_tr_radius=0.8, initial_constr_penalty=0.2))
     
 
     rho_opt, eta_opt = unpack_vars(res.x)
