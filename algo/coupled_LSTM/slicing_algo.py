@@ -1,9 +1,14 @@
-from prob.o_ran_env import *
+#from prob.o_ran_env import *
+from o_ran_env import *
 from algo.DAMC_LSTM_t.nn_CLSTM import *
 
 import torch
 import numpy as np
 from matplotlib import pyplot as plt
+
+from scipy.optimize import minimize
+from scipy.optimize import LinearConstraint, Bounds, NonlinearConstraint
+from scipy.linalg import block_diag
 
 sigma = 50 # admm penalty parameter
 
@@ -168,65 +173,44 @@ if __name__ == "__main__":
     learning_rate_x = 0.01
     learning_rate_lambda = 0.01
 
-    prob, info = build_demo_instance(N=6, K=40, slice_probs=[0.5,0.3,0.2], seed=1000)
-    S, B = prob.S, prob.B
 
-    def pack_vars(rho, eta): return np.concatenate([rho.flatten(), eta.flatten()])
-    def unpack_vars(x):
-        n=S*B; rho=x[:n].reshape(S,B); eta=x[n:].reshape(S,B); return rho,eta
-    
-    rho0 = np.where(prob.d.a_sb > 0, 1.0 / np.maximum(1, np.sum(prob.d.a_sb, axis=0, keepdims=True)), 0.0)
-    eta0 = rho0.copy()
-    x0 = pack_vars(rho0, eta0)
+
+    B, K = 15, 300
+    prob = PerUEFormulation(B=B, K=K, alpha_rho=1e-3, alpha_eta=1e-3)
+    rho0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
+    eta0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
+    x0 = prob.merge(rho0, eta0)    
+
 
     # build Lagrangian and gradient function
     lambda_util = 1.0  # 只缩放效用(∑w log(ε+R))，成本项不缩放
 
-    def objective_with_lambda(x):
-        rho,eta = unpack_vars(x)
-        f_base, grad_rho_base, grad_eta_base, extras = prob.objective_and_grad(rho, eta)
-        # 将 base 梯度拆回： grad_base = grad_util - grad_cost
-        cost_grad_eta = prob.d.beta[:,None]*prob.d.Pmax_W[None,:]
-        cost_grad_rho = prob.d.delta[:,None]*prob.d.W
-        # 目标：lambda*util - cost
-        util = extras['util']
-        f_lambda = (lambda_util*np.sum(prob.d.weights*util)
-                    - np.sum(prob.d.beta[:,None]*eta*prob.d.Pmax_W[None,:])
-                    - np.sum(prob.d.delta[:,None]*rho*prob.d.W))
-        # 梯度：lambda*grad_util - grad_cost = lambda*(grad_base+cost_grad) - cost_grad
-        grad_rho = lambda_util*(grad_rho_base + cost_grad_rho) - cost_grad_rho
-        grad_eta = lambda_util*(grad_eta_base + cost_grad_eta) - cost_grad_eta
-        grad = pack_vars(grad_rho, grad_eta)
-        return -f_lambda, -grad  # SciPy 是最小化
 
     # bounds: 0 ≤ rho ≤ a, 0 ≤ eta ≤ a
     lb = np.zeros_like(x0)
-    ub = np.concatenate([prob.d.a_sb.flatten(), prob.d.a_sb.flatten()])
+    ub = np.concatenate([prob.a_sb.flatten(), prob.a_sb.flatten()])
     bounds = Bounds(lb, ub)
 
-    # per-BS 资源约束
-    def con_g_rho(x):
-        rho,eta = unpack_vars(x); return prob.constraints_and_jacobians(rho,eta)['g_rho']
-    def jac_g_rho(x):
-        rho,eta = unpack_vars(x); J = prob.constraints_and_jacobians(rho,eta)['J_g_rho']
-        J_full = np.zeros((B, 2*S*B))
-        for b in range(B):
-            for s in range(S):
-                J_full[b, s*B+b] = J[s,b]
-        return J_full
-    def con_g_eta(x):
-        rho,eta = unpack_vars(x); return prob.constraints_and_jacobians(rho,eta)['g_eta']
-    def jac_g_eta(x):
-        rho,eta = unpack_vars(x); J = prob.constraints_and_jacobians(rho,eta)['J_g_eta']
-        J_full = np.zeros((B, 2*S*B))
-        for b in range(B):
-            for s in range(S):
-                J_full[b, S*B + (s*B+b)] = J[s,b]
-        return J_full
-    nlc_g_rho = NonlinearConstraint(con_g_rho, -np.inf*np.ones(B), np.zeros(B), jac=jac_g_rho)
-    nlc_g_eta = NonlinearConstraint(con_g_eta, -np.inf*np.ones(B), np.zeros(B), jac=jac_g_eta)
+    
+    # per_BS sum resource ≤ 1
+    def dcondx(prob, x):
+        h_u, Jrho, Jeta =prob.per_ue_constraints_and_jacobians(x)
+        return h_u, np.concatenate([Jrho, Jeta], axis=1)
+    # sum resource partition less than 1
+    A = np.kron(np.eye(2), np.kron(np.ones(3), np.eye(B)))
+    lc_sum_res = LinearConstraint(A, -np.inf*np.ones(2*B), np.ones(2*B))
+    # per-UE min rate constraint
+    def con_g(x):
+        return prob.per_ue_constraints_and_jacobians(x)[0]
+    def con_jac(x):
+        _, drho, deta = prob.per_ue_constraints_and_jacobians(x)
+        return np.concatenate([drho, deta], axis=2).reshape(prob.K, -1)
+    nlc_g = NonlinearConstraint(con_g, np.zeros(K), np.inf*np.ones(K), jac=con_jac)
+    
 
     # eMBB sum-rate
+    # reserved for future use
+    '''
     def con_h_H(x):
         rho,eta = unpack_vars(x); return np.array([prob.constraints_and_jacobians(rho,eta)['h_H']])
     def jac_h_H(x):
@@ -239,33 +223,19 @@ if __name__ == "__main__":
                 J_full[0, S*B + (s*B+b)] = Jeta[s,b]
         return J_full
     nlc_h_H = NonlinearConstraint(con_h_H, np.zeros(1), np.inf*np.ones(1), jac=jac_h_H)
-
-    # URLLC per-BS
-    def con_h_L(x):
-        rho,eta = unpack_vars(x); return prob.constraints_and_jacobians(rho,eta)['h_L']
-    def jac_h_L(x):
-        rho,eta = unpack_vars(x); cons=prob.constraints_and_jacobians(rho,eta)
-        Jrho, Jeta = cons['grad_hL_rho'], cons['grad_hL_eta']  # (B,S,B)
-        J_full = np.zeros((B, 2*S*B))
-        for b in range(B):
-            for s in range(S):
-                for c in range(B):
-                    J_full[b, s*B + c] += Jrho[b,s,c]
-                    J_full[b, S*B + (s*B+c)] += Jeta[b,s,c]
-        return J_full
-    nlc_h_L = NonlinearConstraint(con_h_L, np.zeros(B), np.inf*np.ones(B), jac=jac_h_L)
-
+    '''
     # solve problem using Scipy
-    res = minimize(fun=lambda x: objective_with_lambda(x)[0],
+    res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
                 x0=x0,
-                jac=lambda x: objective_with_lambda(x)[1],
+                jac=lambda x: prob.objective_and_grads(x)[1],
                 method='trust-constr',
                 bounds=bounds,
-                constraints=[nlc_g_rho, nlc_g_eta, nlc_h_H, nlc_h_L],
-                options=dict(verbose=3, maxiter=100, xtol=1e-4, gtol=1e-2)) # option to be determined
+                constraints=[lc_sum_res, nlc_g],
+                #options=dict(maxiter=1000, ftol=1e-8, disp=True)) 
+                options=dict(verbose=3, maxiter=1000, xtol=1e-20, gtol=1e-3)) # option to be determined
     
-    rho_opt, eta_opt = unpack_vars(res.x)
-    cons_final = prob.constraints_and_jacobians(rho_opt, eta_opt)
+    rho_opt, eta_opt = prob.split_x(res.x)
+    cons_final = con_g(res.x)
 
     
 

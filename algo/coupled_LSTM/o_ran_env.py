@@ -84,7 +84,7 @@ class PerUEFormulation:
         self.Pmax = np.full(self.B, 40.0, dtype=np.float64)  # W
         # UE weights & QoS
         self.w_u = np.ones(self.K, dtype=np.float64)
-        Rmin_map = {0: 2e6, 1: 1e6, 2: 1e5}
+        Rmin_map = {0: 1e3, 1: 1e2, 2: 1e2}
         self.Rmin_u = np.array([Rmin_map[int(self.ue2slice[u])] for u in range(self.K)], dtype=np.float64)
         self.eps = 1e-9
         # resource cost weights
@@ -157,7 +157,7 @@ class PerUEFormulation:
         dR_drho -= self.alpha_rho
         dR_deta -= self.alpha_eta
         grad = np.concatenate([dR_drho.flatten(), dR_deta.flatten()]).astype(np.float64)
-        return f, grad
+        return -f, -grad
 
     def per_ue_constraints_and_jacobians(self, x: np.ndarray):
         rho, eta = self.split_x(x)
@@ -190,7 +190,7 @@ class PerUEFormulation:
 
 if __name__ == "__main__":
     # Minimal usage example
-    B, K = 4, 60
+    B, K = 4, 50
     F = PerUEFormulation(B=B, K=K, alpha_rho=1e-3, alpha_eta=1e-3)
 
     # init rho, eta (equal split over active (s,b))
