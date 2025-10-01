@@ -176,7 +176,7 @@ if __name__ == "__main__":
 
 
     B, K = 15, 300
-    prob = PerUEFormulation(B=B, K=K, alpha_rho=1e-3, alpha_eta=1e-3)
+    prob = PerUEFormulation(B=B, K=K, alpha_rho=1, alpha_eta=1)
     rho0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
     eta0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
     x0 = prob.merge(rho0, eta0)    
@@ -225,17 +225,33 @@ if __name__ == "__main__":
     nlc_h_H = NonlinearConstraint(con_h_H, np.zeros(1), np.inf*np.ones(1), jac=jac_h_H)
     '''
     # solve problem using Scipy
+
+
+    res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
+                x0=x0,
+                jac=lambda x: prob.objective_and_grads(x)[1],
+                method='SLSQP',
+                bounds=bounds,
+                constraints=[lc_sum_res, nlc_g],
+                options=dict(maxiter=5000, ftol=1e-8, disp=True)) 
+                #options=dict(verbose=3, maxiter=1000, xtol=1e-20, gtol=1e-3)) # option to be determined
+    
+    x0 = res.x
+    Rmin_map={0: 2e4, 1: 1e3, 2: 1e3}
+    prob.Rmin_u = np.array([Rmin_map[int(prob.ue2slice[u])] for u in range(prob.K)], dtype=np.float64)
+    
     res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
                 x0=x0,
                 jac=lambda x: prob.objective_and_grads(x)[1],
                 method='trust-constr',
                 bounds=bounds,
                 constraints=[lc_sum_res, nlc_g],
-                #options=dict(maxiter=1000, ftol=1e-8, disp=True)) 
+                #options=dict(maxiter=5000, ftol=1e-8, disp=True)) 
                 options=dict(verbose=3, maxiter=1000, xtol=1e-20, gtol=1e-3)) # option to be determined
     
     rho_opt, eta_opt = prob.split_x(res.x)
     cons_final = con_g(res.x)
+    print(np.count_nonzero(con_g(x0)<=0),np.count_nonzero(con_g(res.x)<=0))
 
     
 

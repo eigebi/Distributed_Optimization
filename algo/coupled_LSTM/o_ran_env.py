@@ -84,7 +84,7 @@ class PerUEFormulation:
         self.Pmax = np.full(self.B, 40.0, dtype=np.float64)  # W
         # UE weights & QoS
         self.w_u = np.ones(self.K, dtype=np.float64)
-        Rmin_map = {0: 1e3, 1: 1e2, 2: 1e2}
+        Rmin_map={0: 1e3, 1: 1e2, 2: 1e2}
         self.Rmin_u = np.array([Rmin_map[int(self.ue2slice[u])] for u in range(self.K)], dtype=np.float64)
         self.eps = 1e-9
         # resource cost weights
