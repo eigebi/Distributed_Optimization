@@ -176,7 +176,7 @@ if __name__ == "__main__":
 
 
     B, K = 15, 300
-    prob = PerUEFormulation(B=B, K=K, alpha_rho=1, alpha_eta=1)
+    prob = FormulationV2(B=B, K=K, alpha_rho=1, alpha_eta=1)
     rho0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
     eta0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
     x0 = prob.merge(rho0, eta0)    
