@@ -163,6 +163,19 @@ def my_train_true_gradient(paras, problems, models, optimizers):
                     z = torch.relu(z)
 
 
+def opt_theta(prob, x):
+    
+    for s in range(3):
+        for b in range(B):
+            u_set = np.where((prob.s_u==s) & (prob.b_u==b))[0]
+            idx = np.intersect1d(u_set, np.where(con_g(x)<0)[0])
+            idx_ = np.intersect1d(u_set, np.where(con_g(x)>=0)[0])
+            if idx.shape[0] == 0:
+                continue
+            prob.theta[idx] += 0.02 * np.abs(con_g(x)[idx]/con_g(x)[idx].mean())
+            prob.theta[idx_] = np.maximum(0, prob.theta[idx_]-0.01*prob.theta[idx_])
+            prob.phi[u_set] = prob.theta[u_set]
+
 
 
 if __name__ == "__main__":
@@ -176,11 +189,11 @@ if __name__ == "__main__":
 
 
     B, K = 15, 300
-    prob = FormulationV2(B=B, K=K, alpha_rho=1, alpha_eta=1)
-    rho0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
-    eta0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
-    x0 = prob.merge(rho0, eta0)    
-
+    prob = FormulationV2(B=B, K=K, alpha_rho=1, alpha_eta=1, slice_probs=(0.1, 0.3, 0.6))
+    #rho0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
+    #eta0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
+    #x0 = prob.merge(rho0, eta0)    
+    x0 = prob.init_feasible()
 
     # build Lagrangian and gradient function
     lambda_util = 1.0  # 只缩放效用(∑w log(ε+R))，成本项不缩放
@@ -188,23 +201,21 @@ if __name__ == "__main__":
 
     # bounds: 0 ≤ rho ≤ a, 0 ≤ eta ≤ a
     lb = np.zeros_like(x0)
-    ub = np.concatenate([prob.a_sb.flatten(), prob.a_sb.flatten()])
+    #ub = np.concatenate([prob.a_sb.flatten(), prob.a_sb.flatten()])
+    ub = np.ones_like(x0)
     bounds = Bounds(lb, ub)
 
-    
-    # per_BS sum resource ≤ 1
-    def dcondx(prob, x):
-        h_u, Jrho, Jeta =prob.per_ue_constraints_and_jacobians(x)
-        return h_u, np.concatenate([Jrho, Jeta], axis=1)
-    # sum resource partition less than 1
-    A = np.kron(np.eye(2), np.kron(np.ones(3), np.eye(B)))
-    lc_sum_res = LinearConstraint(A, -np.inf*np.ones(2*B), np.ones(2*B))
+
+
+  
+    A = block_diag(np.ones([1,3]), np.kron(np.ones(3), np.eye(B)))
+    lc_sum_res = LinearConstraint(A, np.zeros(B+1), np.ones(B+1))
     # per-UE min rate constraint
     def con_g(x):
-        return prob.per_ue_constraints_and_jacobians(x)[0]
+        return prob.per_ue_rate_constraints(x)
     def con_jac(x):
         _, drho, deta = prob.per_ue_constraints_and_jacobians(x)
-        return np.concatenate([drho, deta], axis=2).reshape(prob.K, -1)
+        return np.concatenate([drho[:,:,np.newaxis], deta], axis=2).reshape(prob.K, -1)
     nlc_g = NonlinearConstraint(con_g, np.zeros(K), np.inf*np.ones(K), jac=con_jac)
     
 
@@ -225,31 +236,38 @@ if __name__ == "__main__":
     nlc_h_H = NonlinearConstraint(con_h_H, np.zeros(1), np.inf*np.ones(1), jac=jac_h_H)
     '''
     # solve problem using Scipy
+    Rmin_map={0: 1e5, 1: 1e4, 2: 1e4}
+    prob.Rmin_u = np.array([Rmin_map[int(prob.s_u[u])] for u in range(prob.K)], dtype=np.float64)
+    for _ in range(20):
+        res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
+                    x0=x0,
+                    jac=lambda x: prob.objective_and_grads(x)[1],
+                    method='SLSQP',
+                    bounds=bounds,
+                    constraints=[lc_sum_res, nlc_g],
+                    options=dict(maxiter=500, ftol=1e-8, disp=True)) 
+                    #options=dict(verbose=3, maxiter=1000, xtol=1e-20, gtol=1e-8)) # option to be determined
+        print(np.count_nonzero(con_g(x0)<=0),np.count_nonzero(con_g(res.x)<=0))
+
+        x0 = res.x
+        opt_theta(prob, x0)
 
 
-    res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
-                x0=x0,
-                jac=lambda x: prob.objective_and_grads(x)[1],
-                method='SLSQP',
-                bounds=bounds,
-                constraints=[lc_sum_res, nlc_g],
-                options=dict(maxiter=5000, ftol=1e-8, disp=True)) 
-                #options=dict(verbose=3, maxiter=1000, xtol=1e-20, gtol=1e-3)) # option to be determined
-    
-    x0 = res.x
-    Rmin_map={0: 2e4, 1: 1e3, 2: 1e3}
-    prob.Rmin_u = np.array([Rmin_map[int(prob.ue2slice[u])] for u in range(prob.K)], dtype=np.float64)
-    
-    res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
-                x0=x0,
-                jac=lambda x: prob.objective_and_grads(x)[1],
-                method='trust-constr',
-                bounds=bounds,
-                constraints=[lc_sum_res, nlc_g],
-                #options=dict(maxiter=5000, ftol=1e-8, disp=True)) 
-                options=dict(verbose=3, maxiter=1000, xtol=1e-20, gtol=1e-3)) # option to be determined
-    
-    rho_opt, eta_opt = prob.split_x(res.x)
+    Rmin_map={0: 1e6, 1: 1e5, 2: 1e5}
+    prob.Rmin_u = np.array([Rmin_map[int(prob.s_u[u])] for u in range(prob.K)], dtype=np.float64)
+    for _ in range(10):
+        res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
+                    x0=x0,
+                    jac=lambda x: prob.objective_and_grads(x)[1],
+                    method='SLSQP',
+                    bounds=bounds,
+                    constraints=[lc_sum_res, nlc_g],
+                    options=dict(maxiter=500, ftol=1e-8, disp=True)) 
+                    #options=dict(verbose=3, maxiter=1000, xtol=1e-20, gtol=1e-3)) # option to be determined
+        print(np.count_nonzero(con_g(x0)<=0),np.count_nonzero(con_g(res.x)<=0))
+        x0 = res.x
+        opt_theta(prob, x0)
+    #rho_opt, eta_opt = prob.split_x(res.x)
     cons_final = con_g(res.x)
     print(np.count_nonzero(con_g(x0)<=0),np.count_nonzero(con_g(res.x)<=0))
 

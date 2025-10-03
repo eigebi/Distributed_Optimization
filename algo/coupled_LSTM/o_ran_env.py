@@ -291,7 +291,7 @@ class FormulationV2:
 
         # Pack gradients
         g = np.concatenate([grad_rho.ravel(), grad_eta.ravel()])
-        return f, g
+        return -f, -g
 
     # ---------- Constraints ----------
     def capacity_constraints(self, x: np.ndarray):
