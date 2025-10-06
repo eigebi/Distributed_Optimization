@@ -12,13 +12,6 @@ from scipy.linalg import block_diag
 
 sigma = 50 # admm penalty parameter
 
-def dcon_x(x,r,Sidx):
-    if Sidx == 0:
-        return jac_h_H(x)*r
-    elif Sidx == 1:
-        return [r@jac_h_L(x)]
-    else:
-        return [r[:prob.B]@jac_g_rho(x) + r[prob.B:]@jac_g_eta(x)]
     
 def DL_lambda(x,Sidx):
     if Sidx == 0:
@@ -39,18 +32,53 @@ def local_grad_lambda(x,z,r,num_agent, prob):
         grad_lambda.append(DL_lambda(local_var,i))
     return grad_lambda
 
+# to derive gradient of x in local agent
+def aux_local_x(prob, x, idx):
+    x_global = np.zeros((3,1+prob.B))
+    if idx == 0:
+        out = x
+    else:
+        x_global[idx] = x
+        out = np.concatenate([x_global[:,0].flatten(), x_global[:,1:].flatten()])
+    return out
+
+def restore_x(prob, x, idx):
+    if idx == 0:
+        return x
+    else:
+        return np.concatenate([x[idx,np.newaxis],x[3:].reshape(3,prob.B)[idx]])
+    
+# derive gradient of constraints, note that g(x)>=0, add - sign
+def dcon_x(prob, x, r):
+    
+    out = []
+    # use aux_x
+    for s in range(prob.S):
+        aux_x = aux_local_x(prob, x[s].numpy(), s)
+
+        _, drho, deta = prob.per_ue_constraints_and_jacobians(aux_x)
+        con = np.concatenate([drho, deta.reshape(prob.K, -1)],axis=1)
+        con = con[np.where(prob.s_u==s)]
+        if s == 0:
+            # add resource constraints
+            res_con = block_diag(np.ones([1,3]), np.kron(np.ones(3), np.eye(B)))
+            con = np.concatenate([con, -res_con], axis=0)
+        out.append(r[s].numpy()@con)
+    return out
+
+
 
 def local_grad_x(x,z,r,gamma,num_agent,prob):
     B=prob.B
     grad_x = []
+    dcon = dcon_x(prob, x, r)
     for i in range(num_agent):
-        local_var = z.copy()
-        local_var[i] = x[i]
-        local_var = np.concatenate([local_var[:,:B].flatten(),local_var[:,B:].flatten()])
-        _, grad = objective_with_lambda(local_var)
-        grad = np.concatenate(unpack_vars(grad), axis=1)[i]
-        temp_dcon_x = np.concatenate(unpack_vars(dcon_x(local_var,r[i].numpy(),i)[0]), axis=1)
-        grad += gamma[i] + sigma*(x[i]-z[i]) + temp_dcon_x[i]
+        local_var = aux_local_x(prob, x[i].numpy(), i)
+        _, grad = prob.objective_and_grads(local_var)
+        grad = -grad # maximization 
+        grad -= dcon[i] # con >=0
+        grad = restore_x(prob, grad, i)
+        grad += (gamma[i] + sigma*(x[i]-z[i])).numpy()
         grad_x.append(grad[:,np.newaxis])
     return grad_x
 
@@ -107,7 +135,8 @@ def derive_grad_lambda_with_x(x, r):
 
 
 def my_train_true_gradient(paras, problems, models, optimizers):
-
+    idx_map = np.array([np.ones([3,1+prob.B]), np.diag([0,1,0])@np.ones([3,1+prob.B]), np.diag([0,0,1])@np.ones([3, 1+prob.B])])
+    idx_map = np.concatenate([idx_map[:,:,0].reshape(3,-1),idx_map[:,:,1:].reshape(3,-1)],axis=1)
     (x_optimizer, lambda_optimizer) = optimizer
     (x_models, lambda_models) = model
     (num_epoch, num_frame, num_iteration, num_var, num_agent, num_con, num_problem, arg_nn) = paras
@@ -116,8 +145,7 @@ def my_train_true_gradient(paras, problems, models, optimizers):
     GT = []
     acc = []
     for epoch in range(num_epoch):
-
-        init_x = torch.abs(torch.randn(num_agent, num_var))
+        init_x = [torch.abs(torch.randn(num_var[i])) for i in range(num_agent)]
         init_r = [torch.abs(torch.randn(len_lambda[i])) for i in range(num_agent)]  # ensure non-negative
 
         for x_model in x_models:
@@ -130,9 +158,9 @@ def my_train_true_gradient(paras, problems, models, optimizers):
         reserved_x = init_x
         reserved_r = init_r
 
-        gamma = torch.zeros((num_agent, num_var), dtype=torch.float32)
+        gamma = [torch.zeros(num_var[i], dtype=torch.float32) for i in range(num_agent)]
 
-        z = np.abs(np.random.randn( num_agent,  num_var))  # random noise for constraint
+        z = np.abs(np.random.randn(num_var[0]))  # random noise for constraint
         #z = z / np.sum(z, axis= 1)
         z = torch.tensor(z, dtype=torch.float32)
 
@@ -143,7 +171,7 @@ def my_train_true_gradient(paras, problems, models, optimizers):
             for j in range(num_frame):
                 x = reserved_x
                 r = reserved_r
-                grad_x = local_grad_x(x.numpy(), z.numpy(), r, gamma.numpy(), num_agent, problems)
+                grad_x = local_grad_x(x, z, r, gamma, num_agent, problems)
                 _x = []
                 for s in range(num_agent):
                     delta, hidden_temp = x_models[s](torch.tensor(grad_x[s], dtype=torch.float32), hidden_x[s])
@@ -151,16 +179,18 @@ def my_train_true_gradient(paras, problems, models, optimizers):
                     temp_new_x = torch.relu(x[s] + delta[:,0,0])
                     _x.append(temp_new_x)
                     x[s] = temp_new_x.detach()
-                grad_x = local_grad_x(x.numpy(), z.numpy(), r, gamma.numpy(), num_agent, problems)
+                grad_x = local_grad_x(x, z, r, gamma, num_agent, problems)
                 for s in range(num_agent):
                     _x[s].backward(torch.tensor(grad_x[s][:,0], dtype=torch.float32), retain_graph=True)
 
                 if j % zt ==0 :
                     for s in range(num_agent):
-                        gamma[s] = gamma[s] + sigma * (x[s] - z[s])
-                    z = gamma+ sigma * x
-                    z = z / (num_agent * sigma)
-                    z = torch.relu(z)
+                        gamma[s] = gamma[s] + sigma * (x[s] - z[np.bool(idx_map[s])])
+                    z = np.sum([aux_local_x(prob,gamma[s].numpy()+ sigma * x[s].numpy(),s) for s in range(num_agent)], axis=0)
+                    temp = np.kron(np.array([1,2,2]).reshape([3,1]),np.ones(1+prob.B))
+                    num_z = np.concatenate([temp[:,0].flatten(), temp[:,1:].flatten()])
+                    z = z / (num_z * sigma)
+                    #z = torch.relu(z)
 
 
 def opt_theta(prob, x):
@@ -173,7 +203,7 @@ def opt_theta(prob, x):
             if idx.shape[0] == 0:
                 continue
             prob.theta[idx] += 0.02 * np.abs(con_g(x)[idx]/con_g(x)[idx].mean())
-            prob.theta[idx_] = np.maximum(0, prob.theta[idx_]-0.01*prob.theta[idx_])
+            prob.theta[idx_] = np.maximum(0, prob.theta[idx_]-0.02*prob.theta[idx_])
             prob.phi[u_set] = prob.theta[u_set]
 
 
@@ -187,7 +217,7 @@ if __name__ == "__main__":
     learning_rate_lambda = 0.01
 
 
-
+    S = 3
     B, K = 15, 300
     prob = FormulationV2(B=B, K=K, alpha_rho=1, alpha_eta=1, slice_probs=(0.1, 0.3, 0.6))
     #rho0 = 0.9 * prob.a_sb / np.maximum(1, prob.a_sb.sum(axis=0, keepdims=True))
@@ -236,7 +266,7 @@ if __name__ == "__main__":
     nlc_h_H = NonlinearConstraint(con_h_H, np.zeros(1), np.inf*np.ones(1), jac=jac_h_H)
     '''
     # solve problem using Scipy
-    Rmin_map={0: 1e5, 1: 1e4, 2: 1e4}
+    Rmin_map={0: 1e4, 1: 1e3, 2: 1e3}
     prob.Rmin_u = np.array([Rmin_map[int(prob.s_u[u])] for u in range(prob.K)], dtype=np.float64)
     for _ in range(20):
         res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
@@ -253,7 +283,7 @@ if __name__ == "__main__":
         opt_theta(prob, x0)
 
 
-    Rmin_map={0: 1e6, 1: 1e5, 2: 1e5}
+    '''Rmin_map={0: 1e6, 1: 1e5, 2: 1e5}
     prob.Rmin_u = np.array([Rmin_map[int(prob.s_u[u])] for u in range(prob.K)], dtype=np.float64)
     for _ in range(10):
         res = minimize(fun=lambda x: prob.objective_and_grads(x)[0],
@@ -268,18 +298,23 @@ if __name__ == "__main__":
         x0 = res.x
         opt_theta(prob, x0)
     #rho_opt, eta_opt = prob.split_x(res.x)
+    '''
     cons_final = con_g(res.x)
     print(np.count_nonzero(con_g(x0)<=0),np.count_nonzero(con_g(res.x)<=0))
 
     
+    # initialize distributed agents
+    # assume eta, rho constraints are allocated to slice agent 0
+    var_len = 1 + B
+    var_lens = [3*var_len, var_len , var_len]
+    len_lambda = [np.sum(prob.s_u==s) for s in range(S)]
+    len_lambda[0] += 1 + B  # resource constraints are processed by slice 0
 
     class arg_nn:
         hidden_size = 32
         hidden_size_x = 20
 
-    
     x_models = [x_LSTM(1, arg_nn) for _ in range(S)]
-    len_lambda = [1, B, 2*B]
     lambda_models = [x_LSTM(1, arg_nn) for _ in range(S)]
 
     x_optimizers = [torch.optim.Adam(x_models[i].parameters(), lr=0.004) for i in range(S)]
@@ -288,7 +323,7 @@ if __name__ == "__main__":
     model = (x_models, lambda_models)
     optimizer = (x_optimizers, lambda_optimizers)
 
-    paras = (num_epoch, num_frame, num_iteration, 2*B, S, len_lambda, 1, arg_nn)
+    paras = (num_epoch, num_frame, num_iteration, var_lens, S, len_lambda, 1, arg_nn)
 
 
     L_train_result, Loss_train_result, L_truth_result, obj_truth_result = my_train_true_gradient(paras, prob, model, optimizer)

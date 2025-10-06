@@ -386,6 +386,8 @@ class FormulationV2:
                 Jeta[u, ss[j], b] += contrib[j]
 
         return h, Jrho, Jeta
+    def UE_set(self,s):
+        return np.where(self.s_u==s)[0]
 
 if __name__ == "__main__":
     # Quick self-test
