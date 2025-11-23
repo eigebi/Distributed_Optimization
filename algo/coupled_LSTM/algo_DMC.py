@@ -33,9 +33,9 @@ class DMCSolver:
             self.lamb.append(np.zeros((np.count_nonzero(env.b_u==i)+1+3)))  # 其他BS constraint 个数为UE数量+本地power约束+本地slice带宽约束
  
         # Params, not complete yet
-        self.rho_penalty = 500.0
+        self.rho_penalty = 5000
         self.theta = 0.1
-        self.beta = 1000
+        self.beta = 100
         
     def unpack_x(self, x):
         all_b_partial = x[self.env.K*0:self.env.K]
@@ -44,7 +44,7 @@ class DMCSolver:
         return all_b_partial, all_p_partial, slice_rho_partial
     def partial_to_full(self, x):
         all_b_partial, all_p_partial, slice_partial = self.unpack_x(x)
-        slice_b_full = slice_partial * self.env.cfg.bandwidth_Hz # 每个slice的带宽
+        slice_b_full = slice_partial * self.env.cfg.bandwidth_Hz  # slice bandwidth in Hz
         all_b_full = np.zeros(self.env.K)
         all_p_full = np.zeros(self.env.K)
         # 获取每个用户的带宽值,这里与slice分的无关
@@ -75,7 +75,7 @@ class DMCSolver:
         for t in range(max_iter):
             # consensus update for z
             next_z = np.sum(beta*z+self.rho_penalty* x + gamma, 0)/(self.N * self.rho_penalty+beta)
-            next_z = np.clip(next_z, 0, 1.0)
+            next_z = np.clip(next_z, 0.01, 1.0)
             z = next_z
 
             # --- Step 1: Local Update (Each Agent) ---
@@ -86,42 +86,44 @@ class DMCSolver:
                 # 计算本地目标函数关于本地变量的梯度
                 grad_b, grad_p,_ , _ = self.env.get_net_utility_gradients(local_b, local_p, i)
                 # scale
-                grad_b /= self.util_norm_factor
-                grad_p /= self.util_norm_factor
+                grad_b = 1/self.util_norm_factor * grad_b
+                grad_p = 1/self.util_norm_factor * grad_p
                 # 整合梯度，这里还没变成关于分量的梯度
-                dudz = np.concatenate([grad_b, grad_p, np.zeros(self.S)])  # slice部分没在utility里体现
+                #dudz = np.concatenate([grad_b, grad_p, np.zeros(self.S)])  # slice部分没在utility里体现
                 
                 
                 # 这里需要计算本地的每个约束关于变量的梯度 (这里就要开始scale了)
                 dgdb, dgdp, dgdsb, g = self.env.get_constraints_gradients(local_b, local_p, local_slice_B, i)
-                dgdb /= self.cons_norm_factors[0]
-                dgdp /= self.cons_norm_factors[1]
-                dgdsb /= self.cons_norm_factors[2]
+                factors = np.repeat(np.array(self.cons_norm_factors), repeats=[UEs_per_BS[i], 1, self.S]).reshape(-1,1)
+                dgdb = 1/factors * dgdb
+                dgdp = 1/factors * dgdp
+                dgdsb = 1/factors * dgdsb / self.env.cfg.bandwidth_Hz
+                
                 dx1 = (-grad_b + lamb[i][:UEs_per_BS[i]+4]@dgdb)*self.env.cfg.bandwidth_Hz
                 dx2 = (-grad_p + lamb[i][:UEs_per_BS[i]+4]@dgdp)*self.env.Pmax[self.env.b_u]
                 dx3 = lamb[i][:UEs_per_BS[i]+4]@dgdsb*np.ones(self.S)*self.env.cfg.bandwidth_Hz
                 if i==0:
-                    dx3 += lamb[i][-1]*np.ones(self.S)*self.env.cfg.bandwidth_Hz  # 这里的链式法则需要再确认
+                    dx3 += lamb[i][-1]*np.ones(self.S)  # 这里的链式法则需要再确认
                 dx = np.concatenate([dx1, dx2, dx3])
                 #   梯度下降更新本地变量
                 
                 latest_x = z - (dx+ gamma[i]) / self.rho_penalty
-                g[:UEs_per_BS[i]] /= 10e6
-                g[UEs_per_BS[i]] /= self.env.Pmax[self.env.b_u][0]  # 这里的链式法则需要再确认
-                g[UEs_per_BS[i]+1:UEs_per_BS[i]+4] /= self.env.cfg.bandwidth_Hz
+                g[:UEs_per_BS[i]] /= self.cons_norm_factors[0]
+                g[UEs_per_BS[i]] /= self.cons_norm_factors[1]
+                g[UEs_per_BS[i]+1:UEs_per_BS[i]+4] /= self.cons_norm_factors[2]
                 # 线性的constraints最好scale一下 不然收敛很慢
                 if i!=0:
                     latest_lambda = np.maximum(lamb[i] + (theta * g)/(1+theta*eta) ,0) # 投影到非负正交集
                 else:
-                    temp = np.concatenate([g, [np.sum(local_slice_B)/self.env.cfg.bandwidth_Hz - 1.0*1000]])
+                    temp = np.concatenate([g, [np.sum(local_slice_B)/self.env.cfg.bandwidth_Hz - 1.0]])
                     latest_lambda = np.maximum(lamb[i] + (theta * temp)/(1+theta*eta) ,0) # 投影到非负正交集
 
                 gamma[i] += self.rho_penalty * (latest_x - next_z)
                 x[i] = latest_x
-                lamb[i] = latest_lambda
+                lamb[i] = latest_lambda       
 
             #beta = 100/eta
-            eta=1/(t+1)**4
+            eta=1/(t+1)**(1/4)
             print(z)
         
             #if t % 50 == 0:

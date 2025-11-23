@@ -111,6 +111,9 @@ class WirelessEnvNumpy:
         
         self.eps = 1e-9
 
+
+        self.util_norm_factor = 1e2  # 带宽归一化
+        self.cons_norm_factors = [1e7, 10, 1e8]  # 约束缩放乘子
     def compute_metrics(self, b_vec, p_vec):
         """纯前向计算"""
         P_total_sb = np.zeros((self.S, self.B))
@@ -189,65 +192,7 @@ class WirelessEnvNumpy:
         return grad_b, grad_p, net_utility, rate
     
 
-    def get_constraints_gradients(self, b_vec, p_vec, i = None):
-        """
-        计算 每个agent上 的梯度:
-        Grad = [Rmin - UE1_rate, Rmin - UE2_rate, ..., BS_power - Pmax, slice1_used - slice1_cap, ...]
-        """
-        if i is not None:
-            b_temp = np.zeros_like(b_vec)
-            b_temp[self.b_u==i] = b_vec[self.b_u==i]
-            b_vec = b_temp
-        rate, sinr, interf = self.compute_metrics(b_vec, p_vec)
-        
-        # 1. 计算数值
-        utility = np.sum(self.w_u * np.log(self.eps + rate))
-        cost = self.cfg.alpha_b * np.sum(b_vec) + self.cfg.alpha_p * np.sum(p_vec)
-        net_utility = utility - cost
-        
-        # 2. 梯度推导
-        dU_dR = self.w_u / (self.eps + rate)
-        ln2 = np.log(2.0)
-        term_sinr = b_vec / (ln2 * (1.0 + sinr))
-        denom = interf + self.N0 * b_vec + 1e-15
-        
-        # --- Grad b ---
-        dSINR_db = -sinr / denom * self.N0
-        grad_b_util = dU_dR * (np.log2(1.0+sinr) + term_sinr*dSINR_db)
-        # 关键修改：减去资源成本梯度
-        grad_b = grad_b_util - self.cfg.alpha_b
-        if i is not None:
-            grad_b_temp = np.zeros_like(b_vec)
-            grad_b_temp[self.b_u==i] = grad_b[self.b_u==i]
-            grad_b = grad_b_temp
-        
-        # --- Grad p ---
-        grad_p_util = np.zeros(self.K)
-        # Self
-        dR_dp_self = term_sinr * (self.G[np.arange(self.K), self.b_u] / denom)
-        grad_p_util += dU_dR * dR_dp_self
-        # Cross (Interference)
-        vic_sens = dU_dR * term_sinr * (-sinr / denom)
-        Price = np.zeros((self.S, self.B))
-        for s in range(self.S):
-            mask = (self.s_u == s)
-            if not np.any(mask): continue
-            sens = vic_sens[mask]; Gs = self.G[mask,:]
-            tot = sens @ Gs
-            own = np.zeros(self.B)
-            contrib = sens * Gs[np.arange(len(sens)), self.b_u[mask]]
-            np.add.at(own, self.b_u[mask], contrib)
-            Price[s,:] = tot - own
-        grad_p_util += Price[self.s_u, self.b_u]
-        
-        # 关键修改：减去资源成本梯度
-        if i is not None:
-            grad_p = grad_p_util
-            grad_p[self.b_u == i] -= self.cfg.alpha_p
-        else:
-            grad_p = grad_p_util - self.cfg.alpha_p
-        
-        return grad_b, grad_p, net_utility, rate
+    
    
     def get_constraints_gradients(self, b_vec, p_vec, rho_vec, bs_idx):
         """
@@ -378,7 +323,7 @@ class WirelessEnvNumpy:
             
             # Violation
             sum_b = np.sum(b_vec[slice_indices_global])
-            viols[row] = sum_b - rho_vec[s] * self.cfg.bandwidth_Hz
+            viols[row] = sum_b - rho_vec[s]
             
             # Grad b: 对该切片的本地用户为 1
             jac_b[row, slice_indices_global] = 1.0
