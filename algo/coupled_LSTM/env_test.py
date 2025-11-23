@@ -128,7 +128,7 @@ class WirelessEnvNumpy:
         rate = b_vec * np.log2(1.0 + sinr)
         return rate, sinr, interf
 
-    def get_net_utility_gradients(self, b_vec, p_vec, i = 0):
+    def get_net_utility_gradients(self, b_vec, p_vec, i = None):
         """
         计算 Net Utility 的梯度:
         Grad = Grad(Utility) - Cost_Factor
@@ -187,7 +187,206 @@ class WirelessEnvNumpy:
             grad_p = grad_p_util - self.cfg.alpha_p
         
         return grad_b, grad_p, net_utility, rate
+    
 
+    def get_constraints_gradients(self, b_vec, p_vec, i = None):
+        """
+        计算 每个agent上 的梯度:
+        Grad = [Rmin - UE1_rate, Rmin - UE2_rate, ..., BS_power - Pmax, slice1_used - slice1_cap, ...]
+        """
+        if i is not None:
+            b_temp = np.zeros_like(b_vec)
+            b_temp[self.b_u==i] = b_vec[self.b_u==i]
+            b_vec = b_temp
+        rate, sinr, interf = self.compute_metrics(b_vec, p_vec)
+        
+        # 1. 计算数值
+        utility = np.sum(self.w_u * np.log(self.eps + rate))
+        cost = self.cfg.alpha_b * np.sum(b_vec) + self.cfg.alpha_p * np.sum(p_vec)
+        net_utility = utility - cost
+        
+        # 2. 梯度推导
+        dU_dR = self.w_u / (self.eps + rate)
+        ln2 = np.log(2.0)
+        term_sinr = b_vec / (ln2 * (1.0 + sinr))
+        denom = interf + self.N0 * b_vec + 1e-15
+        
+        # --- Grad b ---
+        dSINR_db = -sinr / denom * self.N0
+        grad_b_util = dU_dR * (np.log2(1.0+sinr) + term_sinr*dSINR_db)
+        # 关键修改：减去资源成本梯度
+        grad_b = grad_b_util - self.cfg.alpha_b
+        if i is not None:
+            grad_b_temp = np.zeros_like(b_vec)
+            grad_b_temp[self.b_u==i] = grad_b[self.b_u==i]
+            grad_b = grad_b_temp
+        
+        # --- Grad p ---
+        grad_p_util = np.zeros(self.K)
+        # Self
+        dR_dp_self = term_sinr * (self.G[np.arange(self.K), self.b_u] / denom)
+        grad_p_util += dU_dR * dR_dp_self
+        # Cross (Interference)
+        vic_sens = dU_dR * term_sinr * (-sinr / denom)
+        Price = np.zeros((self.S, self.B))
+        for s in range(self.S):
+            mask = (self.s_u == s)
+            if not np.any(mask): continue
+            sens = vic_sens[mask]; Gs = self.G[mask,:]
+            tot = sens @ Gs
+            own = np.zeros(self.B)
+            contrib = sens * Gs[np.arange(len(sens)), self.b_u[mask]]
+            np.add.at(own, self.b_u[mask], contrib)
+            Price[s,:] = tot - own
+        grad_p_util += Price[self.s_u, self.b_u]
+        
+        # 关键修改：减去资源成本梯度
+        if i is not None:
+            grad_p = grad_p_util
+            grad_p[self.b_u == i] -= self.cfg.alpha_p
+        else:
+            grad_p = grad_p_util - self.cfg.alpha_p
+        
+        return grad_b, grad_p, net_utility, rate
+   
+    def get_constraints_gradients(self, b_vec, p_vec, rho_vec, bs_idx):
+        """
+        计算基站 bs_idx 的本地约束关于【全网所有变量】的 Jacobian 矩阵。
+        
+        Args:
+            b_vec: (K_total,) 全网所有用户带宽
+            p_vec: (K_total,) 全网所有用户功率
+            rho_vec: (S,) 本地切片配额 (注意：rho通常只对本地约束求导)
+            bs_idx: 当前基站索引
+            
+        Returns:
+            jac_b: (Num_Cons, K_total)
+            jac_p: (Num_Cons, K_total)  <-- 这里将包含跨基站的干扰梯度
+            jac_rho: (Num_Cons, S)
+            viols: (Num_Cons,)
+        """
+        # 1. 全局信息准备
+        # ---------------------------
+        K_total = self.K
+        # 获取属于当前基站的用户索引 (Local UEs)
+        local_mask = (self.b_u == bs_idx)
+        local_indices = np.where(local_mask)[0] # Global indices of local UEs
+        K_local = len(local_indices)
+        
+        # 2. 前向计算 (全网状态)
+        # ---------------------------
+        rate, sinr, interf = self.compute_metrics(b_vec, p_vec)
+        
+        # 提取本地相关的状态
+        local_rate = rate[local_mask]
+        local_sinr = sinr[local_mask]
+        local_b = b_vec[local_mask]
+        local_denom = interf[local_mask] + self.N0 * local_b + 1e-15
+        
+        # 3. 初始化 Jacobian (行数=本地约束数, 列数=全网变量数)
+        # ------------------------------------------------------
+        # Rows: QoS(K_local) + Power(1) + Slice_Cap(S)
+        num_cons = K_local + 1 + self.S
+        
+        jac_b = np.zeros((num_cons, K_total))
+        jac_p = np.zeros((num_cons, K_total))
+        jac_rho = np.zeros((num_cons, self.S))
+        viols = np.zeros(num_cons)
+        
+        ln2 = np.log(2.0)
+        
+        # =========================================================
+        # Constraint Group 1: QoS (Rmin - R_k <= 0)
+        # 涉及跨基站干扰，jac_p 是稠密的
+        # =========================================================
+        # 预计算公共求导项 dR/dSINR
+        # term_sinr[k] = b_k / (ln2 * (1 + SINR_k))
+        term_sinr = local_b / (ln2 * (1.0 + local_sinr)) # (K_local,)
+        
+        for i, u_global_idx in enumerate(local_indices):
+            # i: 约束矩阵的行索引 (0 ~ K_local-1)
+            # u_global_idx: 该约束对应的用户在全网的 ID
+            
+            # Violation
+            viols[i] = self.Rmin_u[u_global_idx] - local_rate[i]
+            
+            # --- 对 b 的梯度 (Row i, Col u_global_idx) ---
+            # 带宽不耦合，只影响自己
+            dSINR_db = -local_sinr[i] / local_denom[i] * self.N0
+            dR_db = np.log2(1.0 + local_sinr[i]) + term_sinr[i] * dSINR_db
+            
+            # g(x) = Rmin - R -> grad = -dR/db
+            jac_b[i, u_global_idx] = -dR_db
+            
+            # --- 对 p 的梯度 (Row i, All Cols) ---
+            # 这是一个大循环，或者向量化计算
+            # dR_i / dp_j 存在，如果 j 干扰了 i
+            
+            # 1. 对自己的功率 (Self, j = u_global_idx)
+            g_serve = self.G[u_global_idx, bs_idx]
+            dR_dp_self = term_sinr[i] * (g_serve / local_denom[i])
+            jac_p[i, u_global_idx] = -dR_dp_self
+            
+            # 2. 对干扰源的功率 (Cross, j != u_global_idx)
+            # 只有同切片的用户才产生干扰
+            my_slice = self.s_u[u_global_idx]
+            
+            # 找出全网所有属于该切片的用户 (干扰源候选人)
+            interferer_mask = (self.s_u == my_slice) & (self.b_u != bs_idx)
+            interferer_indices = np.where(interferer_mask)[0]
+            
+            if len(interferer_indices) > 0:
+                # dR_i / dp_j = dR/dSINR * dSINR/dI * dI/dp_j
+                # dSINR/dI = - SINR / Denom
+                # dI/dp_j = G_{j_bs -> i_user} = G[u_global_idx, b_u[j]]
+                
+                chain_factor = term_sinr[i] * (-local_sinr[i] / local_denom[i]) # Scalar for user i
+                
+                # 获取这些干扰源所属的基站 ID
+                interferer_bs = self.b_u[interferer_indices]
+                
+                # G[u, b] 表示基站 b 到用户 u 的增益
+                # 这里我们需要：干扰源基站 -> 受害用户 i
+                g_interf = self.G[u_global_idx, interferer_bs] # Vector
+                
+                # 填入 Jacobian 行
+                # g(x) = -R -> grad = - (chain_factor * G)
+                jac_p[i, interferer_indices] = -(chain_factor * g_interf)
+
+        # =========================================================
+        # Constraint Group 2: Local Power (sum(p_local) - Pmax <= 0)
+        # 纯本地约束
+        # =========================================================
+        row_idx = K_local
+        viols[row_idx] = np.sum(p_vec[local_mask]) - self.Pmax[bs_idx]
+        
+        # Grad: 对本地用户的 p 为 1，其他为 0
+        jac_p[row_idx, local_indices] = 1.0
+        
+        # =========================================================
+        # Constraint Group 3: Local Slice Capacity
+        # sum(b_local_s) - rho_s * W <= 0
+        # =========================================================
+        start_row = K_local + 1
+        
+        for s in range(self.S):
+            row = start_row + s
+            
+            # 本地属于该 slice 的用户
+            slice_mask_local = (self.s_u[local_indices] == s)
+            slice_indices_global = local_indices[slice_mask_local]
+            
+            # Violation
+            sum_b = np.sum(b_vec[slice_indices_global])
+            viols[row] = sum_b - rho_vec[s] * self.cfg.bandwidth_Hz
+            
+            # Grad b: 对该切片的本地用户为 1
+            jac_b[row, slice_indices_global] = 1.0
+            
+            # Grad rho: -W
+            jac_rho[row, s] = -self.cfg.bandwidth_Hz
+
+        return jac_b, jac_p, jac_rho, viols
 # ==========================================
 # 4. 严格硬约束求解器 (Two-Phase Hard Constraint Solver)
 # ==========================================
@@ -308,8 +507,8 @@ def solve_centralized_hard_constrained(env):
 if __name__ == "__main__":
     cfg = EnvCfg()
     topo = StandardTopology(cfg)
-    bs_xy = topo.generate_hex_bs(num_rings=2)
-    data = topo.generate_ues_robust(bs_xy, K_per_bs=12, num_slices=3)
+    bs_xy = topo.generate_hex_bs(num_rings=1)
+    data = topo.generate_ues_robust(bs_xy, K_per_bs=5, num_slices=3)
     
     env = WirelessEnvNumpy(len(bs_xy), len(data[1]), 3, data, cfg)
     print(f"Topology: {env.B} BS, {env.K} UEs")
