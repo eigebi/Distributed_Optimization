@@ -10,8 +10,8 @@ class DMCSolver:
         # 变量存储 (Structure: [b, p, rho])
         # 我们用 list 存储每个 Agent 的本地变量，模拟分布式内存
         #self.agents_x = [] # 这个只是辅助变量，用于consensus收敛的; 现在想确保xi,z 存的都是分位数
-        self.agents_x = np.ones((self.N, env.K*2 + self.S))*0.01 # 每个 Agent 的变量向量化存储
-        self.gamma = np.zeros((self.N, env.K*2 + self.S)) # 每个 Agent 的consensus dual向量化存储
+        self.agents_x = np.ones((self.N, env.K*2))*0.01 # 每个 Agent 的变量向量化存储
+        self.gamma = np.zeros((self.N, env.K*2)) # 每个 Agent 的consensus dual向量化存储
         '''for i in range(self.N): # 初始化每个 Agent 的变量
             K_i = np.sum(env.b_u == i)
             # Init: b=small, p=small, rho=equal
@@ -27,31 +27,30 @@ class DMCSolver:
         # Global Variables (Scheduler)
         #self.z_rho = np.ones(self.S) / self.S
         #self.r_global = 0.0 # Global Slice Sum Multiplier
-        self.z = np.ones(env.K*2 + self.S)*0.001  # 全局变量向量化存储
-        self.lamb = [np.zeros((np.count_nonzero(env.b_u==0)+1+3+0))]  # 0号BS constraint 个数为UE数量+本地power约束+本地slice带宽约束+全局slice约束
+        self.z = np.ones(env.K*2)*0.001  # 全局变量向量化存储
+        self.lamb = [np.zeros((np.count_nonzero(env.b_u==0)+1+3))]  # 0号BS constraint 个数为UE数量+本地power约束+本地slice带宽约束+全局slice约束
         for i in range(1, self.N):
             self.lamb.append(np.zeros((np.count_nonzero(env.b_u==i)+1+3)))  # 其他BS constraint 个数为UE数量+本地power约束+本地slice带宽约束
  
         # Params, not complete yet
         self.rho_penalty = 10
-        self.theta = 10
-        self.beta = 10
+        self.theta = 1
+        self.beta = 100000
         
     def unpack_x(self, x):
         all_b_partial = x[self.env.K*0:self.env.K]
         all_p_partial = x[self.env.K:self.env.K*2]
-        slice_rho_partial = x[self.env.K*2:self.env.K*2+self.S]
-        return all_b_partial, all_p_partial, slice_rho_partial
+        
+        return all_b_partial, all_p_partial
     def partial_to_full(self, x):
-        all_b_partial, all_p_partial, slice_partial = self.unpack_x(x)
-        slice_b_full = slice_partial * self.env.cfg.bandwidth_Hz  # slice bandwidth in Hz
+        all_b_partial, all_p_partial= self.unpack_x(x)
         all_b_full = np.zeros(self.env.K)
         all_p_full = np.zeros(self.env.K)
         # 获取每个用户的带宽值,这里与slice分的无关
         all_b_full = all_b_partial * self.env.cfg.bandwidth_Hz
         # per UE power (compatile with various Pmax)
         all_p_full = all_p_partial * self.env.Pmax[self.env.b_u]
-        return all_b_full, all_p_full, slice_b_full
+        return all_b_full, all_p_full
     def full_to_partial_grad(self, gb_full, gp_full, slice_full):
         # 把关于真实resource的梯度转换为关于分量时的梯度， 即链式法则，只是放在这里不一定用
         all_b_partial_grad = gb_full * self.env.cfg.bandwidth_Hz #不应该把slice分为的变量带进去，应该是作为约束存在的
@@ -82,7 +81,7 @@ class DMCSolver:
             
             for i in range(self.N):
                 # 分量还原成真实值
-                local_b, local_p, local_slice_B = self.partial_to_full(z)
+                local_b, local_p = self.partial_to_full(z)
                 local_slice_B = np.ones(self.S)/self.S * self.env.cfg.bandwidth_Hz  # 这里的slice bandwidth是全局变量，不是本地变量
                 # 计算本地目标函数关于本地变量的梯度
                 grad_b, grad_p,_ , _ = self.env.get_net_utility_gradients(local_b, local_p, i)
@@ -102,10 +101,10 @@ class DMCSolver:
                 
                 dx1 = (-grad_b + lamb[i][:UEs_per_BS[i]+4]@dgdb)*self.env.cfg.bandwidth_Hz
                 dx2 = (-grad_p + lamb[i][:UEs_per_BS[i]+4]@dgdp)*self.env.Pmax[self.env.b_u]
-                dx3 = lamb[i][:UEs_per_BS[i]+4]@dgdsb*self.env.cfg.bandwidth_Hz
+                
                 #if i==0:
                 #    dx3 += lamb[i][-1]*np.ones(self.S)/self.cons_norm_factors[2]*self.env.cfg.bandwidth_Hz  # 这里的链式法则需要再确认
-                dx = np.concatenate([dx1, dx2, dx3])
+                dx = np.concatenate([dx1, dx2])
                 #   梯度下降更新本地变量
                 
                 latest_x = z - (dx+ gamma[i]) / self.rho_penalty
@@ -128,7 +127,7 @@ class DMCSolver:
        
             #beta = 100/eta
             #eta=1/(t+1)**(1/4)
-            print(z)
+            print(lamb[0])
         
             #if t % 50 == 0:
             #    print(f"Iter {t}: Util={u:.2f}, QoS Viol={total_qos_viol:.4f}, ConsErr={cons_err:.4f}")
