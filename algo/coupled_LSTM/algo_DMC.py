@@ -10,7 +10,7 @@ class DMCSolver:
         # 变量存储 (Structure: [b, p, rho])
         # 我们用 list 存储每个 Agent 的本地变量，模拟分布式内存
         #self.agents_x = [] # 这个只是辅助变量，用于consensus收敛的; 现在想确保xi,z 存的都是分位数
-        self.agents_x = np.ones((self.N, env.K*2 + self.S))*0.01 # 每个 Agent 的变量向量化存储
+        self.agents_x = np.ones((self.N, env.K*2 + self.S))*0.09 # 每个 Agent 的变量向量化存储
         self.gamma = np.zeros((self.N, env.K*2 + self.S)) # 每个 Agent 的consensus dual向量化存储
         '''for i in range(self.N): # 初始化每个 Agent 的变量
             K_i = np.sum(env.b_u == i)
@@ -27,14 +27,14 @@ class DMCSolver:
         # Global Variables (Scheduler)
         #self.z_rho = np.ones(self.S) / self.S
         #self.r_global = 0.0 # Global Slice Sum Multiplier
-        self.z = np.ones(env.K*2 + self.S)*0.001  # 全局变量向量化存储
-        self.lamb = [np.zeros((np.count_nonzero(env.b_u==0)+1+3+0))]  # 0号BS constraint 个数为UE数量+本地power约束+本地slice带宽约束+全局slice约束
+        self.z = np.ones(env.K*2 + self.S)*0.01  # 全局变量向量化存储
+        self.lamb = [np.zeros((np.count_nonzero(env.b_u==0)+1+3+1))]  # 0号BS constraint 个数为UE数量+本地power约束+本地slice带宽约束+全局slice约束
         for i in range(1, self.N):
             self.lamb.append(np.zeros((np.count_nonzero(env.b_u==i)+1+3)))  # 其他BS constraint 个数为UE数量+本地power约束+本地slice带宽约束
  
         # Params, not complete yet
-        self.rho_penalty = 10
-        self.theta = 10
+        self.rho_penalty = 50000
+        self.theta = 0.01
         self.beta = 10
         
     def unpack_x(self, x):
@@ -74,7 +74,7 @@ class DMCSolver:
         
         for t in range(max_iter):
             # consensus update for z
-            next_z = np.sum(beta*z+self.rho_penalty* x + gamma, 0)/(self.N * self.rho_penalty+beta)
+            next_z = (beta*z+np.sum(self.rho_penalty* x + gamma, 0))/(self.N * self.rho_penalty+beta)
             next_z = np.clip(next_z, 0, 1.0)
             z = next_z
 
@@ -83,7 +83,7 @@ class DMCSolver:
             for i in range(self.N):
                 # 分量还原成真实值
                 local_b, local_p, local_slice_B = self.partial_to_full(z)
-                local_slice_B = np.ones(self.S)/self.S * self.env.cfg.bandwidth_Hz  # 这里的slice bandwidth是全局变量，不是本地变量
+                #local_slice_B = np.ones(self.S)/self.S * self.env.cfg.bandwidth_Hz  # 这里的slice bandwidth是全局变量，不是本地变量
                 # 计算本地目标函数关于本地变量的梯度
                 grad_b, grad_p,_ , _ = self.env.get_net_utility_gradients(local_b, local_p, i)
                 # scale
@@ -103,8 +103,8 @@ class DMCSolver:
                 dx1 = (-grad_b + lamb[i][:UEs_per_BS[i]+4]@dgdb)*self.env.cfg.bandwidth_Hz
                 dx2 = (-grad_p + lamb[i][:UEs_per_BS[i]+4]@dgdp)*self.env.Pmax[self.env.b_u]
                 dx3 = lamb[i][:UEs_per_BS[i]+4]@dgdsb*self.env.cfg.bandwidth_Hz
-                #if i==0:
-                #    dx3 += lamb[i][-1]*np.ones(self.S)/self.cons_norm_factors[2]*self.env.cfg.bandwidth_Hz  # 这里的链式法则需要再确认
+                if i==0:
+                    dx3 += lamb[i][-1]*np.ones(self.S)/self.cons_norm_factors[2]*self.env.cfg.bandwidth_Hz  # 这里的链式法则需要再确认
                 dx = np.concatenate([dx1, dx2, dx3])
                 #   梯度下降更新本地变量
                 
@@ -113,21 +113,20 @@ class DMCSolver:
                 g[UEs_per_BS[i]] /= self.cons_norm_factors[1]
                 g[UEs_per_BS[i]+1:UEs_per_BS[i]+4] /= self.cons_norm_factors[2]
                 # 线性的constraints最好scale一下 不然收敛很慢
-                '''
+                
                 if i!=0:
                     latest_lambda = np.maximum(lamb[i] + (theta * g)/(1+theta*eta) ,0) # 投影到非负正交集
                 else:
                     temp = (np.sum(local_slice_B) - self.env.cfg.bandwidth_Hz) / self.cons_norm_factors[2]*10
                     g_temp = np.concatenate([g, np.array([temp])])
                     latest_lambda = np.maximum(lamb[i] + (theta * g_temp)/(1+theta*eta) ,0) # 投影到非负正交集
-                '''
-                latest_lambda = np.maximum(lamb[i] + (theta * g)/(1+theta*eta) ,0)
+                
                 gamma[i] += self.rho_penalty * (latest_x - next_z)
                 x[i] = latest_x
                 lamb[i] = latest_lambda       
        
-            #beta = 100/eta
-            #eta=1/(t+1)**(1/4)
+            beta = 10/eta+1000
+            eta=1/(t+1)**(1/4)/self.rho_penalty
             print(z)
         
             #if t % 50 == 0:
@@ -149,8 +148,8 @@ class DMCSolver:
 if __name__ == "__main__":
     cfg = EnvCfg()
     topo = StandardTopology(cfg)
-    bs_xy = topo.generate_hex_bs(num_rings=1)
-    data = topo.generate_ues_robust(bs_xy, K_per_bs=1, num_slices=3)
+    bs_xy = topo.generate_hex_bs(num_rings=2)
+    data = topo.generate_ues_robust(bs_xy, K_per_bs=6, num_slices=3)
     
     env = WirelessEnvNumpy(len(bs_xy), len(data[1]), 3, data, cfg)
     print(f"Topology: {env.B} BS, {env.K} UEs")

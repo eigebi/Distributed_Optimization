@@ -116,7 +116,7 @@ class DMCSolver:
                 latest_lambda = np.maximum((lamb[i] + (theta * g))/(1+theta*eta) ,0)
 
                 x[i] = latest_x
-                lamb[i] = latest_lambda       
+                lamb[i] = latest_lambda      
 
                 
        

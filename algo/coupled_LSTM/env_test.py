@@ -111,7 +111,7 @@ class WirelessEnvNumpy:
         
         self.eps = 1e-9
         self.util_norm_factor = 1e2
-        self.cons_norm_factors = [1e7, 1e6, 1e8] 
+        self.cons_norm_factors = [1e6, 1e5, 1e6] 
 
     def compute_metrics(self, b_vec, p_vec):
         """纯前向计算"""
@@ -509,8 +509,8 @@ def solve_centralized_hard_constrained(env):
 if __name__ == "__main__":
     cfg = EnvCfg()
     topo = StandardTopology(cfg)
-    bs_xy = topo.generate_hex_bs(num_rings=1)
-    data = topo.generate_ues_robust(bs_xy, K_per_bs=5, num_slices=3)
+    bs_xy = topo.generate_hex_bs(num_rings=0)
+    data = topo.generate_ues_robust(bs_xy, K_per_bs=3, num_slices=3)
     
     env = WirelessEnvNumpy(len(bs_xy), len(data[1]), 3, data, cfg)
     print(f"Topology: {env.B} BS, {env.K} UEs")
