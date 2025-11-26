@@ -9,8 +9,8 @@ import matplotlib.pyplot as plt
 @dataclass
 class SystemConfig:
     # --- 拓扑规模 ---
-    num_edges: int = 5           # Edge Server (Agent) 数量
-    tasks_per_edge: int = 4      # 每个 Edge 下的任务数量
+    num_edges: int = 100           # Edge Server (Agent) 数量
+    tasks_per_edge: int = 10      # 每个 Edge 下的任务数量
     
     # --- 物理常数 ---
     # 能耗系数: P = kappa * f^3 (f in Hz)
@@ -33,13 +33,13 @@ class SystemConfig:
     # --- 效用与权重 ---
     # 目标: Max alpha * ln(1+f) - beta * E
     alpha_utility: float = 10.0   # 调高 Utility 权重以鼓励 f 增大
-    beta_energy: float = 1.0      # 能耗权重
+    beta_energy: float = 5.0      # 能耗权重
     
     # --- 资源限制 ---
     # 总任务数 = 20。平均每个任务最少需要 ~1.5 GHz。
     # 理论最低总需求 ~30 GHz。
     # 我们给 Cloud 设置 50 GHz，制造适度的资源竞争（Active Constraint）。
-    F_cloud_max: float = 40.0     # (GHz)
+    F_cloud_max: float = 2500.0     # (GHz)
     
     # 变量边界 (GHz)
     f_min_bound: float = 0.1
@@ -99,6 +99,38 @@ class CentralizedMECEnv:
         net_cost = np.sum(self.cfg.beta_energy * energy - utility)
         
         return net_cost
+    def get_local_utility_gradients(self, f_vec, t_vec, id):
+        """
+        计算每个任务(Agent)的本地目标函数(Net Cost)关于其本地变量的梯度。
+        
+        Objective_i = beta * Energy_i - Utility_i
+                    = beta * (kappa * f_i^3 * t_i) - alpha_i * ln(1 + f_i)
+        
+        Args:
+            f_vec: (N_tasks,) 当前分配的频率
+            t_vec: (N_tasks,) 当前分配的时间
+            
+        Returns:
+            grads: list of dict, 每个元素对应一个任务
+                   {'grad_f': scalar, 'grad_t': scalar}
+        """
+        N = self.total_tasks
+        grads = []
+        
+        # 预取参数
+        beta = self.cfg.beta_energy
+        kappa = self.cfg.kappa_scaled
+
+        dE_df = kappa * 3 * (f_vec**2) * t_vec
+        dU_df = self.alpha_vec[id*self.cfg.tasks_per_edge:(id+1)*self.cfg.tasks_per_edge] / (1.0 + f_vec)
+        grad_f_vec = beta * dE_df - dU_df
+
+        dE_dt = kappa * (f_vec**3)
+        grad_t_vec = beta * dE_dt
+
+        return grad_f_vec, grad_t_vec
+        
+        
 
     def constraints(self):
         """
@@ -135,6 +167,62 @@ class CentralizedMECEnv:
             cons.append({'type': 'ineq', 'fun': constr_time})
             
         return cons
+    def get_local_constraint_gradients(self, f_vec, t_vec,i):
+        """
+        计算每个任务(Agent)的本地非凸 QoS 约束关于其本地变量的梯度。
+        Constraint: g_i = W_i - f_i * t_i <= 0
+        
+        Args:
+            f_vec: (N_tasks,) 当前分配的频率
+            t_vec: (N_tasks,) 当前分配的时间
+            
+        Returns:
+            grads: list of dict, 每个元素对应一个任务
+                   {'grad_f': scalar, 'grad_t': scalar, 'violation': scalar}
+        """
+        N = self.total_tasks
+        grads = []
+        g = self.W[i*self.cfg.tasks_per_edge:(i+1)*self.cfg.tasks_per_edge] -  f_vec * t_vec
+        grad_f_vec = -t_vec
+        grad_t_vec = -f_vec
+
+        return grad_f_vec, grad_t_vec, g
+        
+        for i in range(N):
+            # 1. 获取当前状态
+            f_i = f_vec[i]
+            t_i = t_vec[i]
+            W_i = self.W[i]
+            
+            # 2. 计算违约值 (Violation)
+            # g(x) = W - f*t
+            # 如果 g > 0, 说明 f*t < W (未完成任务), 需要惩罚
+            val = W_i - f_i * t_i
+            violation = max(0, val)
+            
+            # 3. 计算梯度 (Jacobian of g(x))
+            # dg/df = -t
+            grad_f = -t_i
+            
+            # dg/dt = -f
+            grad_t = -f_i
+            
+            # 如果您需要归一化 (Scaling) 以防止梯度爆炸:
+            # 假设我们希望梯度量级在 1.0 左右
+            # 当前 f ~ 5, t ~ 0.5. grad_f ~ -0.5, grad_t ~ -5. 
+            # 量级不平衡 (f梯度小, t梯度大)
+            # 建议不做硬性归一化，而是通过 Adam/RMSprop 优化器自动处理，
+            # 或者在 DMC 更新时给 f 和 t 不同的步长。
+            
+            grads.append({
+                'id': i,
+                'grad_f': grad_f,
+                'grad_t': grad_t,
+                'violation': violation,
+                'is_active': violation > 0 # 标记约束是否被激活
+            })
+            
+        return grads
 
     def get_bounds(self):
         """
