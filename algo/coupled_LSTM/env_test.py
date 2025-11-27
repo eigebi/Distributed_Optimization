@@ -10,12 +10,12 @@ import matplotlib.pyplot as plt
 @dataclass
 class EnvCfg:
     fc_GHz: float = 3.5
-    bandwidth_Hz: float = 100e6         # 100 MHz
+    bandwidth_Hz: float = 20e6         # 100 MHz
     noise_figure_dB: float = 9.0
     pathloss_exponent: float = 3.6
     shadowing_sigma_dB: float = 8.0
     min_distance_m: float = 35.0
-    Pmax_W: float = 80.0                # 80 W
+    Pmax_W: float = 40.0                # 80 W
     snr_drop_threshold_db: float = -6.0 
     seed: int = 42
     
@@ -103,7 +103,7 @@ class WirelessEnvNumpy:
         
         # QoS: eMBB=5Mbps, URLLC=1Mbps
         self.Rmin_u = np.full(K, 0.1e6)
-        self.Rmin_u[self.s_u == 0] = 0.5e6
+        self.Rmin_u[self.s_u == 0] = 1e6
         self.Rmin_u[self.s_u == 1] = 0.1e6
         
         # Weight: eMBB 高权重
@@ -509,8 +509,8 @@ def solve_centralized_hard_constrained(env):
 if __name__ == "__main__":
     cfg = EnvCfg()
     topo = StandardTopology(cfg)
-    bs_xy = topo.generate_hex_bs(num_rings=0)
-    data = topo.generate_ues_robust(bs_xy, K_per_bs=3, num_slices=3)
+    bs_xy = topo.generate_hex_bs(num_rings=1)
+    data = topo.generate_ues_robust(bs_xy, K_per_bs=5, num_slices=3)
     
     env = WirelessEnvNumpy(len(bs_xy), len(data[1]), 3, data, cfg)
     print(f"Topology: {env.B} BS, {env.K} UEs")

@@ -33,8 +33,8 @@ class DMCSolver:
             self.lamb.append(np.zeros((np.count_nonzero(env.b_u==i)+1+3)))  # 其他BS constraint 个数为UE数量+本地power约束+本地slice带宽约束
  
         # Params, not complete yet
-        self.rho_penalty = 50000
-        self.theta = 0.01
+        self.rho_penalty = 5000
+        self.theta = 0.1
         self.beta = 10
         
     def unpack_x(self, x):
@@ -85,7 +85,7 @@ class DMCSolver:
                 local_b, local_p, local_slice_B = self.partial_to_full(z)
                 #local_slice_B = np.ones(self.S)/self.S * self.env.cfg.bandwidth_Hz  # 这里的slice bandwidth是全局变量，不是本地变量
                 # 计算本地目标函数关于本地变量的梯度
-                grad_b, grad_p,_ , _ = self.env.get_net_utility_gradients(local_b, local_p, i)
+                grad_b, grad_p, util_i, _ = self.env.get_net_utility_gradients(local_b, local_p, i)
                 # scale
                 grad_b = 1/self.util_norm_factor * grad_b
                 grad_p = 1/self.util_norm_factor * grad_p
@@ -125,7 +125,7 @@ class DMCSolver:
                 x[i] = latest_x
                 lamb[i] = latest_lambda       
        
-            beta = 10/eta+1000
+            beta = 10/eta+2000
             eta=1/(t+1)**(1/4)/self.rho_penalty
             print(z)
         
@@ -148,8 +148,8 @@ class DMCSolver:
 if __name__ == "__main__":
     cfg = EnvCfg()
     topo = StandardTopology(cfg)
-    bs_xy = topo.generate_hex_bs(num_rings=2)
-    data = topo.generate_ues_robust(bs_xy, K_per_bs=6, num_slices=3)
+    bs_xy = topo.generate_hex_bs(num_rings=1)
+    data = topo.generate_ues_robust(bs_xy, K_per_bs=8, num_slices=3)
     
     env = WirelessEnvNumpy(len(bs_xy), len(data[1]), 3, data, cfg)
     print(f"Topology: {env.B} BS, {env.K} UEs")
