@@ -80,7 +80,7 @@ class StandardTopology:
         
         K = len(ue_list)
         # 切片分布: eMBB 40%, URLLC 30%, mMTC 30%
-        s_u = self.rng.choice(num_slices, size=K, p=[0.15, 0.35, 0.5])
+        s_u = self.rng.choice(num_slices, size=K, p=[0.1, 0.3, 0.6])
         G = np.zeros((K, B))
         ue_arr = np.array(ue_list)
         for k in range(K):
@@ -102,16 +102,16 @@ class WirelessEnvNumpy:
         self.w_u = np.ones(K)
         
         # QoS: eMBB=5Mbps, URLLC=1Mbps
-        self.Rmin_u = np.full(K, 0.1e6)
-        self.Rmin_u[self.s_u == 0] = 1e6
-        self.Rmin_u[self.s_u == 1] = 0.1e6
+        self.Rmin_u = np.full(K, 0.1e5)
+        self.Rmin_u[self.s_u == 0] = 1e5
+        self.Rmin_u[self.s_u == 1] = 0.1e5
         
         # Weight: eMBB 高权重
         self.w_u[self.s_u == 0] = 1.0
         
         self.eps = 1e-9
-        self.util_norm_factor = 1e2
-        self.cons_norm_factors = [1e6, 1e5, 1e6] 
+        self.util_norm_factor = 1
+        self.cons_norm_factors = [1e6, 1, 1e6] 
 
     def compute_metrics(self, b_vec, p_vec):
         """纯前向计算"""
@@ -125,6 +125,8 @@ class WirelessEnvNumpy:
         rx_total = np.einsum('kb,kb->k', P_tx_rel, self.G)
         own_bs = P_total_sb[self.s_u, self.b_u] * self.G[np.arange(self.K), self.b_u]
         interf = rx_total - own_bs
+
+        interf = interf * 0.3 # beamforming gain factor
         
         sinr = signal / (interf + self.N0 * b_vec + 1e-15)
         rate = b_vec * np.log2(1.0 + sinr)
@@ -168,7 +170,7 @@ class WirelessEnvNumpy:
         dR_dp_self = term_sinr * (self.G[np.arange(self.K), self.b_u] / denom)
         grad_p_util += dU_dR * dR_dp_self
         # Cross (Interference)
-        vic_sens = dU_dR * term_sinr * (-sinr / denom)
+        vic_sens = dU_dR * term_sinr * (-sinr / denom) * 0.3 # beamforming gain factor
         Price = np.zeros((self.S, self.B))
         for s in range(self.S):
             mask = (self.s_u == s)
@@ -353,7 +355,7 @@ class WirelessEnvNumpy:
                 
                 # 填入 Jacobian 行
                 # g(x) = -R -> grad = - (chain_factor * G)
-                jac_p[i, interferer_indices] = -(chain_factor * g_interf)
+                jac_p[i, interferer_indices] = -(chain_factor * g_interf) * 0.3 # beamforming gain factor
 
         # =========================================================
         # Constraint Group 2: Local Power (sum(p_local) - Pmax <= 0)
@@ -509,8 +511,8 @@ def solve_centralized_hard_constrained(env):
 if __name__ == "__main__":
     cfg = EnvCfg()
     topo = StandardTopology(cfg)
-    bs_xy = topo.generate_hex_bs(num_rings=1)
-    data = topo.generate_ues_robust(bs_xy, K_per_bs=5, num_slices=3)
+    bs_xy = topo.generate_hex_bs(num_rings=2)
+    data = topo.generate_ues_robust(bs_xy, K_per_bs=10, num_slices=3)
     
     env = WirelessEnvNumpy(len(bs_xy), len(data[1]), 3, data, cfg)
     print(f"Topology: {env.B} BS, {env.K} UEs")
