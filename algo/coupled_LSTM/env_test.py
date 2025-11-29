@@ -111,7 +111,7 @@ class WirelessEnvNumpy:
         
         self.eps = 1e-9
         self.util_norm_factor = 1
-        self.cons_norm_factors = [1e6, 1, 1e6] 
+        self.cons_norm_factors = [1e6, 1, 2e7] 
 
     def compute_metrics(self, b_vec, p_vec):
         """纯前向计算"""

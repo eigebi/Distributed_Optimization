@@ -29,7 +29,7 @@ class DMCSolver:
         # Global Variables (Scheduler)
         #self.z_rho = np.ones(self.S) / self.S
         #self.r_global = 0.0 # Global Slice Sum Multiplier
-        self.z = np.ones(env.K*2)*0.026  # 全局变量向量化存储
+        self.z = np.ones(env.K*2)*0.01  # 全局变量向量化存储
         self.lamb = [np.zeros((np.count_nonzero(env.b_u==0)+1+3))]  # 0号BS constraint 个数为UE数量+本地power约束+本地slice带宽约束+全局slice约束
         for i in range(1, self.N):
             self.lamb.append(np.zeros((np.count_nonzero(env.b_u==i)+1+3)))  # 其他BS constraint 个数为UE数量+本地power约束+本地slice带宽约束
@@ -74,7 +74,7 @@ class DMCSolver:
         g_local = []
         g_power = []
         g_slice = []
-
+        j_loss = []
         
         for t in range(max_iter):
             # consensus update for z
@@ -89,6 +89,8 @@ class DMCSolver:
             g_global = []
             v_temp = []
             obj = []
+            j_temp = 0
+            
 
             # --- Step 1: Local Update (Each Agent) ---
             
@@ -122,18 +124,19 @@ class DMCSolver:
                 #    dx3 += lamb[i][-1]*np.ones(self.S)/self.cons_norm_factors[2]*self.env.cfg.bandwidth_Hz  # 这里的链式法则需要再确认
                 dx = np.concatenate([dx1, dx2])
                 #   梯度下降更新本地变量
-                
+                j_temp += np.sum((dx+ gamma[i])**2)
                 latest_x = z - (dx+ gamma[i]) / rho
+                #latest_x = np.clip(latest_x, 0, 1.0)
                 g[:UEs_per_BS[i]] /= self.cons_norm_factors[0]
                 g[UEs_per_BS[i]] /= self.cons_norm_factors[1]
                 g[UEs_per_BS[i]+1:UEs_per_BS[i]+4] /= self.cons_norm_factors[2]
                 # 线性的constraints最好scale一下 不然收敛很慢
                 
-
+                j_temp += ((lamb[i] > 0).astype(float)) @ (g**2)
                
                 
                 #if i!=0:
-                latest_lambda = np.maximum(lamb[i] + (theta * g)/(1+theta*eta) ,0) # 投影到非负正交集
+                latest_lambda = np.minimum(np.maximum(lamb[i] + (theta * g)/(1+theta*eta) ,0),100) # 投影到非负正交集
                 #else:
                 #temp = (np.sum(local_slice_B) - self.env.cfg.bandwidth_Hz) / self.cons_norm_factors[2]*10
                 #g_temp = np.concatenate([g, np.array([temp])])
@@ -143,6 +146,7 @@ class DMCSolver:
                 #x[i] = np.clip(latest_x, 0, 1.0)
                 x[i] = latest_x
                 lamb[i] = latest_lambda
+            j_loss.append(j_temp/self.N)
             g_local.append(np.mean(np.maximum(np.concatenate(v_temp),0)[:,:UEs_per_BS[i]]**2))
             g_power.append(np.mean(np.maximum(np.concatenate(v_temp),0)[:,UEs_per_BS[i]:UEs_per_BS[i]+1]**2))
             g_slice.append(np.mean(np.maximum(np.concatenate(v_temp),0)[:,UEs_per_BS[i]+1:]**2))
@@ -154,15 +158,18 @@ class DMCSolver:
                 eta = 0
             else:
                 eta=1/(t+1)**(1/4)/rho
-                beta = 1000 + 1000/eta
+                beta = 100 + 0.01/eta**2
             
             
             print(z)
+            _b, _p = self.partial_to_full(z)
+            _,_,obj,rate = self.env.get_net_utility_gradients(_b, _p)
+            #print(obj,np.sum(rate)/1e6)
         
             #if t % 50 == 0:
             #    print(f"Iter {t}: Util={u:.2f}, QoS Viol={total_qos_viol:.4f}, ConsErr={cons_err:.4f}")
  
-        return g_history
+        return j_loss
         
 
 
@@ -180,19 +187,19 @@ if __name__ == "__main__":
     cfg = EnvCfg()
     topo = StandardTopology(cfg)
     bs_xy = topo.generate_hex_bs(num_rings=2)
-    data = topo.generate_ues_robust(bs_xy, K_per_bs=40, num_slices=3)
+    data = topo.generate_ues_robust(bs_xy, K_per_bs=10, num_slices=3)
     
     env = WirelessEnvNumpy(len(bs_xy), len(data[1]), 3, data, cfg)
     print(f"Topology: {env.B} BS, {env.K} UEs")
     algo = DMCSolver(env)
-    iter_num = 1000
-    g_1 = algo.solve(max_iter=iter_num, rho = 10, theta = 0.05, dad = False) 
-    g_2 = algo.solve(max_iter=iter_num, rho = 100, theta =0.05, dad = False)
-    g_3 = algo.solve(max_iter=iter_num, rho = 1000, theta =0.05, dad = False)
-    g_4 = algo.solve(max_iter=iter_num, rho = 10000, theta =0.05, dad = False)
+    iter_num = 100
+    g_1 = algo.solve(max_iter=iter_num, rho = 1000, theta = 0.01, dad = False) 
+    g_2 = algo.solve(max_iter=iter_num, rho = 1000, theta =0.01, dad = False)
+    g_3 = algo.solve(max_iter=iter_num, rho = 10000, theta =0.01, dad = False)
+    g_4 = algo.solve(max_iter=iter_num, rho = 100000, theta =0.01, dad = False)
     #g_dad = algo.solve(max_iter=1000, rho = 5000, theta = 0.1, dad = True)
     plt.plot(g_1, 
-         label='DMC $\\rho=1000$', 
+         label='DMC $\\rho=10$', 
          color='#1f77b4',         # 专业的深蓝色
          linestyle='-',           # 实线
          linewidth=2)            # 【关键】每隔10个点画一个标记，防止太密
@@ -202,7 +209,7 @@ if __name__ == "__main__":
          linestyle='-',           # 实线
          linewidth=2)            # 【关键】每隔10个点画一个标记，防止太密
     plt.plot(g_3, 
-         label='DMC $\\rho=5000$',          
+         label='DMC $\\rho=1000$',          
          color='#2ca02c',         # 专业的绿色
          linestyle='-',           # 实线
          linewidth=2)            # 【关键】每隔10个点画一个标记，防止太密

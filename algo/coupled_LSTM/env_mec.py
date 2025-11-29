@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 @dataclass
 class SystemConfig:
     # --- 拓扑规模 ---
-    num_edges: int = 100           # Edge Server (Agent) 数量
+    num_edges: int = 5           # Edge Server (Agent) 数量
     tasks_per_edge: int = 10      # 每个 Edge 下的任务数量
     
     # --- 物理常数 ---
@@ -32,14 +32,14 @@ class SystemConfig:
     
     # --- 效用与权重 ---
     # 目标: Max alpha * ln(1+f) - beta * E
-    alpha_utility: float = 10.0   # 调高 Utility 权重以鼓励 f 增大
-    beta_energy: float = 5.0      # 能耗权重
+    alpha_utility: float = 10/num_edges/tasks_per_edge   # 调高 Utility 权重以鼓励 f 增大
+    beta_energy: float = 1/num_edges/tasks_per_edge      # 能耗权重
     
     # --- 资源限制 ---
     # 总任务数 = 20。平均每个任务最少需要 ~1.5 GHz。
     # 理论最低总需求 ~30 GHz。
     # 我们给 Cloud 设置 50 GHz，制造适度的资源竞争（Active Constraint）。
-    F_cloud_max: float = 2500.0     # (GHz)
+    F_cloud_max: float = 8000.0     # (GHz)
     
     # 变量边界 (GHz)
     f_min_bound: float = 0.1
