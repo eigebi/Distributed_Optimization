@@ -14,9 +14,9 @@ class DMCSolver:
         self.agents_x = np.ones((self.N,self.K))*0.1 # 每个 Agent 的变量向量化存储
         self.agent_xi = [np.ones((self.M[i])) for i in range(self.N)]  # 每个 Agent 的xi变量向量化存储, locally
         self.gamma = np.zeros((self.N, self.K)) # 每个 Agent 的consensus dual向量化存储
-        self.gamma_xi = [np.zeros((self.M[i])) for i in range(self.N)]  # 每个 Agent 的xi dual向量化存储
-
+        
         self.z = np.ones(self.K)*0.1  # 全局w向量化存储
+
         #self.z = np.random.randn(self.K)*0.1
         self.lamb = [np.zeros((self.M[i])) for i in range(self.N)] #取决于每个agent sample的个数
         
@@ -24,9 +24,8 @@ class DMCSolver:
     def solve(self, max_iter=500, rho=5000, theta=0.01, eta_c = 1):
         history = {'util': [], 'viol': [], 'consensus': []}
         z = self.z.copy()  # 全局变量向量化存储
-        z_xi = [np.zeros((self.M[i])) for i in range(self.N)]  # xi 变量的辅助变量向量化存储
+        z_xi = [np.zeros((self.M[i])) for i in range(self.N)]  # xi 变量的辅助变量向量化存储, anchor
         gamma = self.gamma.copy()  # consensus multiplier 向量化存储
-        gamma_xi = [g.copy() for g in self.gamma_xi]  # xi multiplier 向量化存储
         x = self.agents_x.copy()  # 本地变量向量化存储
         xi = [x.copy() for x in self.agent_xi]  # 本地xi变量向量化存储
         lamb = [l.copy() for l in self.lamb]
@@ -43,11 +42,12 @@ class DMCSolver:
         for t in range(max_iter):
             # consensus update for z
             next_z = (beta*z+np.sum(rho* x + gamma, 0))/(self.N * rho+beta)
-            #next_z = np.clip(next_z, -2.0, 2.0)
+            next_z = np.clip(next_z, -2.0, 2.0)
             z = next_z
             
-            next_z_xi = [(beta/M[i]*z_xi[i]+rho*xi[i]+gamma_xi[i])/(rho + beta/M[i]) for i in range(N)]
+            next_z_xi = [(beta*z_xi[i]+10*xi[i])/(10 + beta) for i in range(N)]
             z_xi = [np.maximum(next_z_xi[i], 0.0) for i in range(N)]
+            z_xi = [np.minimum(z_xi[i], 2.0) for i in range(N)]
             g_global = []
             v_temp = []
             obj = []
@@ -63,9 +63,9 @@ class DMCSolver:
                 constraints = agent.constraints(z, z_xi[i])
                 J_w = agent.jacobian_w(z, z_xi[i])
                 J_xi = agent.jacobian_xi(z, z_xi[i])
-                constraints = constraints
-                J_w = J_w
-                J_xi = J_xi
+                constraints = constraints*2
+                J_w = J_w*2
+                J_xi = J_xi*2
 
 
                 v_temp.append(np.mean(np.maximum(constraints, 0)**2))
@@ -76,9 +76,8 @@ class DMCSolver:
                 j_temp += np.sum((dw+gamma[i])**2)#+np.sum((dxi)**2)
 
                 latest_w = z - (dw + gamma[i]) / rho
-                latest_xi = z_xi[i] - (dxi+gamma_xi[i]) / rho ###
-                #latest_xi = xi[i] - (dxi) / 10000
-                latest_lambda = np.minimum(np.maximum(lamb[i] + (theta * constraints)/(1+theta*eta) ,0),100) # 投影到非负正交集
+                latest_xi = z_xi[i] - (dxi) / 10 ###
+                latest_lambda = np.minimum(np.maximum(lamb[i] + (theta * constraints)/(1+theta*eta) ,0),10) # 投影到非负正交集
                 gamma[i] += rho * (latest_w - z)
                 #x[i] = np.clip(latest_w, -1.0, 1.0)
 
@@ -86,8 +85,8 @@ class DMCSolver:
                 j_temp += ((lamb[i] > 0).astype(float)) @ (constraints**2)
                 j_temp += np.sum(x[i] - z)**2
 
-                gamma_xi[i] += rho * (latest_xi - z_xi[i]) ###
-                #xi[i] = (beta * xi[i] +rho*latest_xi) / (rho + beta) ###
+                
+                
                 xi[i] = latest_xi
                 x[i] = latest_w
                 lamb[i] = latest_lambda
@@ -96,8 +95,8 @@ class DMCSolver:
             j_loss.append(j_temp/N)
             
 
-            eta=1/(t+1)**(1/4)/10
-            beta =  10+ 10/eta
+            eta=1/(t+1)**(1/4)/rho
+            beta =  rho+ 2/eta
             
             
             print(z[:5])
@@ -163,11 +162,11 @@ if __name__ == "__main__":
         print("\n现在你可以用同样的接口跑 DMC，并对比 w 是否收敛到 w_star。")
 
     algo = DMCSolver(nodes,cfg)
-    iter_num = 100
-    j_1, g_1 = algo.solve(max_iter=iter_num, rho = 1, theta = 0.1, eta_c = 1)
+    iter_num = 500
+    j_1, g_1 = algo.solve(max_iter=iter_num, rho = 1, theta = 0.01, eta_c = 1)
     j_2, g_2 = algo.solve(max_iter=iter_num, rho = 10, theta = 0.1, eta_c = 3)
     j_3, g_3 = algo.solve(max_iter=iter_num, rho = 100, theta = 0.1, eta_c = 5)
-    j_4, g_4 = algo.solve(max_iter=iter_num, rho = 1000, theta = 0.1, eta_c = 7)
+    j_4, g_4 = algo.solve(max_iter=iter_num, rho = 100, theta = 0.1, eta_c = 7)
     #g_dad = algo.solve(max_iter=1000, rho = 5000, theta = 0.1, dad = True)
     plt.figure(1)
     plt.plot(j_1, 
@@ -211,7 +210,7 @@ if __name__ == "__main__":
     #plt.xlabel('Iteration number', fontsize=12, fontweight='bold')
     #plt.ylabel('Infeasibility', fontsize=12, fontweight='bold')
     #plt.legend(['Proposed DMC', 'Gradient Ascent Descent'])
-    plt.yscale('log')
+    #plt.yscale('log')
     plt.xlabel('Iteration number', fontsize=15)
     #plt.xlim(0, 100)
     plt.ylabel('Stationary Gap', fontsize=15)
