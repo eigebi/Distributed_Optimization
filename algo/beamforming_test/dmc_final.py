@@ -5,7 +5,7 @@
 #       (a) Sum-rate vs iteration (+ WMMSE final as dashed hline)
 #       (b) QoS violation vs iteration (mean(max(g,0))) in log-scale
 #           + WMMSE final violation as dashed hline
-#       Curves: Pricing, DMC-fixed, DMC-adaptive (and WMMSE dashed reference lines)
+#       Curves: Pricing, Dual Ascent Descent, Proposed DMC (and WMMSE dashed reference lines)
 #
 #   Fig-B (scale with Monte-Carlo, each K run S=20 seeds): 1 figure with 2 subplots
 #       (a) Mean(SR / SR_WMMSE) vs K
@@ -556,9 +556,9 @@ def plot_iter_two_panels(histories: dict, wmmse_sr: float, wmmse_viol: float, ou
 
     # clear style set:
     style = {
-        "Interf-Pricing": dict(color="tab:blue",  linestyle="-"),
-        "DMC-fixed":      dict(color="tab:orange",linestyle="-"),
-        "DMC-adaptive":   dict(color="tab:green", linestyle="-"),
+        "Interference Pricing": dict(color="tab:blue",  linestyle="-"),
+        "Dual Ascent Descent":      dict(color="tab:orange",linestyle="-"),
+        "Proposed DMC":   dict(color="tab:green", linestyle="-"),
     }
 
     fig, axes = plt.subplots(1, 2, figsize=(7.2, 2.6))
@@ -567,7 +567,7 @@ def plot_iter_two_panels(histories: dict, wmmse_sr: float, wmmse_viol: float, ou
     ax = axes[0]
     for name, hist in histories.items():
         ax.plot(np.asarray(hist["sum_rate"], float), label=name, **style.get(name, {}))
-    ax.axhline(wmmse_sr, linestyle="--", color="tab:gray", label="WMMSE (final)")
+    ax.axhline(wmmse_sr, linestyle="--", color="tab:gray", label="WMMSE (ref.)")
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Sum-rate (bps/Hz)")
     ax.grid(True, alpha=0.4)
@@ -578,10 +578,10 @@ def plot_iter_two_panels(histories: dict, wmmse_sr: float, wmmse_viol: float, ou
     for name, hist in histories.items():
         y = np.maximum(np.asarray(hist["viol"], float), 1e-18)
         ax.plot(y, label=name, **style.get(name, {}))
-    ax.axhline(max(wmmse_viol, 1e-18), linestyle="--", color="tab:gray", label="WMMSE (final)")
+    ax.axhline(max(wmmse_viol, 1e-18), linestyle="--", color="tab:gray", label="WMMSE (ref.)")
     ax.set_yscale("log")
     ax.set_xlabel("Iteration")
-    ax.set_ylabel(r"Mean $\max(g,0)$ (log)")
+    ax.set_ylabel("QoS Violation (log)")
     ax.grid(True, which="both", alpha=0.4)
     ax.legend(loc="best")
 
@@ -605,12 +605,12 @@ def plot_scale_two_panels(K_list, sr_ratio_dict, viol_ratio_dict, out_dir: str, 
     ax = axes[0]
     for name, ys in sr_ratio_dict.items():
         ax.plot(K_list, ys, marker="o",
-                color={"Interf-Pricing":"tab:blue","DMC-fixed":"tab:orange","DMC-adaptive":"tab:green"}.get(name,"tab:purple"),
+                color={"Interference Pricing":"tab:blue","Dual Ascent Descent":"tab:orange","Proposed DMC":"tab:green"}.get(name,"tab:purple"),
                 linestyle="-",
                 label=name)
-    ax.axhline(1.0, linestyle="--", color="tab:gray", label="WMMSE (=1)")
-    ax.set_xlabel("K (number of users)")
-    ax.set_ylabel("Mean SR / SR(WMMSE)")
+    ax.axhline(1.0, linestyle="--", color="tab:gray", label="WMMSE (ref.)")
+    ax.set_xlabel("N (number of users)")
+    ax.set_ylabel("Mean SR / Ref. SR")
     ax.set_xticks(list(map(int, K_list)))
     ax.grid(True, alpha=0.4)
     ax.legend(loc="best")
@@ -621,15 +621,15 @@ def plot_scale_two_panels(K_list, sr_ratio_dict, viol_ratio_dict, out_dir: str, 
         if name == "WMMSE":
             continue
         ax.plot(K_list, ys, marker="o",
-                color={"Interf-Pricing":"tab:blue","DMC-fixed":"tab:orange","DMC-adaptive":"tab:green"}.get(name,"tab:purple"),
+                color={"Interference Pricing":"tab:blue","Dual Ascent Descent":"tab:orange","Proposed DMC":"tab:green"}.get(name,"tab:purple"),
                 linestyle="-",
                 label=name)
     # WMMSE reference viol ratio
     if "WMMSE" in viol_ratio_dict:
-        ax.plot(K_list, viol_ratio_dict["WMMSE"], linestyle="--", color="tab:gray", marker="x", label="WMMSE (viol/Rmin)")
-    ax.set_yscale("log")
-    ax.set_xlabel("K (number of users)")
-    ax.set_ylabel(r"Mean $\max(g,0)$ / $R_{\min}$ (log)")
+        ax.plot(K_list, viol_ratio_dict["WMMSE"], linestyle="--", color="tab:gray", marker="x", label="WMMSE (ref.)")
+    #ax.set_yscale("log")
+    ax.set_xlabel("N (number of users)")
+    ax.set_ylabel("Mean QoS Violation Ratio")
     ax.set_xticks(list(map(int, K_list)))
     ax.grid(True, which="both", alpha=0.4)
     ax.legend(loc="best")
@@ -683,9 +683,9 @@ def main():
     Z_adapt, hist_adapt = run_dmc(env, dmc, iters=T, mode="adaptive", sched=adapt_sched, seed=123)
 
     histories = {
-        "Interf-Pricing": hist_ip,
-        "DMC-fixed": hist_fixed,
-        "DMC-adaptive": hist_adapt,
+        "Interference Pricing": hist_ip,
+        "Dual Ascent Descent": hist_fixed,
+        "Proposed DMC": hist_adapt,
     }
 
     out_dir = "figs_method4"
@@ -698,12 +698,12 @@ def main():
     #   rate: SR / SR_WMMSE  (WMMSE=1)
     #   viol: mean(max(g,0)) / Rmin
     # ------------------------
-    S = 10
+    S = 20
     K_list = [10, 15, 20, 25, 30]
 
     # store mean ratios across seeds
-    sr_ratio = {"Interf-Pricing": [], "DMC-fixed": [], "DMC-adaptive": []}
-    viol_ratio = {"Interf-Pricing": [], "DMC-fixed": [], "DMC-adaptive": [], "WMMSE": []}
+    sr_ratio = {"Interference Pricing": [], "Dual Ascent Descent": [], "Proposed DMC": []}
+    viol_ratio = {"Interference Pricing": [], "Dual Ascent Descent": [], "Proposed DMC": [], "WMMSE": []}
 
     # iteration counts for scale runs (keep moderate)
     T_ip = 100
@@ -750,21 +750,21 @@ def main():
             vl_ad = envk.viol(Z_ad_k)
 
             # normalized ratios
-            ratios_sr["Interf-Pricing"].append(sr_ip / (sr_w + eps))
-            ratios_sr["DMC-fixed"].append(sr_fx / (sr_w + eps))
-            ratios_sr["DMC-adaptive"].append(sr_ad / (sr_w + eps))
+            ratios_sr["Interference Pricing"].append(sr_ip / (sr_w + eps))
+            ratios_sr["Dual Ascent Descent"].append(sr_fx / (sr_w + eps))
+            ratios_sr["Proposed DMC"].append(sr_ad / (sr_w + eps))
 
 
             vref = max(vl_w, 1e-12)
 
-            ratios_vl["Interf-Pricing"].append(vl_ip / vref)
-            ratios_vl["DMC-fixed"].append(vl_fx / vref)
-            ratios_vl["DMC-adaptive"].append(vl_ad / vref)
+            ratios_vl["Interference Pricing"].append(vl_ip / vref)
+            ratios_vl["Dual Ascent Descent"].append(vl_fx / vref)
+            ratios_vl["Proposed DMC"].append(vl_ad / vref)
             ratios_vl["WMMSE"].append(vl_w / vref) 
             '''
-            ratios_vl["Interf-Pricing"].append(vl_ip / (Rmin + eps))
-            ratios_vl["DMC-fixed"].append(vl_fx / (Rmin + eps))
-            ratios_vl["DMC-adaptive"].append(vl_ad / (Rmin + eps))
+            ratios_vl["Interference Pricing"].append(vl_ip / (Rmin + eps))
+            ratios_vl["Dual Ascent Descent"].append(vl_fx / (Rmin + eps))
+            ratios_vl["Proposed DMC"].append(vl_ad / (Rmin + eps))
             ratios_vl["WMMSE"].append(vl_w / (Rmin + eps))
             '''
 
@@ -775,8 +775,8 @@ def main():
             viol_ratio[name].append(float(np.mean(ratios_vl[name])))
 
         print(f"[MC scale K={Kk}] "
-              f"SR/IP={sr_ratio['Interf-Pricing'][-1]:.3f}, SR/fix={sr_ratio['DMC-fixed'][-1]:.3f}, SR/ad={sr_ratio['DMC-adaptive'][-1]:.3f} | "
-              f"viol/IP={viol_ratio['Interf-Pricing'][-1]:.3e}, viol/fix={viol_ratio['DMC-fixed'][-1]:.3e}, viol/ad={viol_ratio['DMC-adaptive'][-1]:.3e}, viol/W={viol_ratio['WMMSE'][-1]:.3e}")
+              f"SR/IP={sr_ratio['Interference Pricing'][-1]:.3f}, SR/fix={sr_ratio['Dual Ascent Descent'][-1]:.3f}, SR/ad={sr_ratio['Proposed DMC'][-1]:.3f} | "
+              f"viol/IP={viol_ratio['Interference Pricing'][-1]:.3e}, viol/fix={viol_ratio['Dual Ascent Descent'][-1]:.3e}, viol/ad={viol_ratio['Proposed DMC'][-1]:.3e}, viol/W={viol_ratio['WMMSE'][-1]:.3e}")
 
     prefix2 = f"method4_MCscale_N{N}_S{S}_T{T_dmc}"
     plot_scale_two_panels(K_list, sr_ratio, viol_ratio, out_dir=out_dir, prefix=prefix2)

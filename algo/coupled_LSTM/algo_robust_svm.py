@@ -113,9 +113,9 @@ class DMCSolver:
 
 if __name__ == "__main__":
      # --- 1. 配置参数 ---
-    N_SAMPLES = 200   # 样本总数
+    N_SAMPLES = 2000   # 样本总数
     N_FEATURES = 40    # 特征维度
-    N_NODES = 10        # 分布式节点数
+    N_NODES = 20        # 分布式节点数
     C_SVM = 1.0        # SVM 正则系数
     cfg = {
         'n_samples': N_SAMPLES,
@@ -151,10 +151,10 @@ if __name__ == "__main__":
 
     algo = DMCSolver(nodes,cfg)
     iter_num = 500
-    g_1 = algo.solve(max_iter=iter_num, rho = 100, theta = 0.01, eta_c = 1)
-    g_2 = algo.solve(max_iter=iter_num, rho = 100, theta = 0.01, eta_c = 3)
-    g_3 = algo.solve(max_iter=iter_num, rho = 100, theta = 0.01, eta_c = 5)
-    g_4 = algo.solve(max_iter=iter_num, rho = 100, theta = 0.01, eta_c = 7)
+    g_1 = algo.solve(max_iter=iter_num, rho = 0.01, theta = 0.001, eta_c = 5)
+    g_2 = algo.solve(max_iter=iter_num, rho = 0.1, theta = 0.001, eta_c = 5)
+    g_3 = algo.solve(max_iter=iter_num, rho = 1, theta = 0.001, eta_c = 5)
+    g_4 = algo.solve(max_iter=iter_num, rho = 10, theta = 0.001, eta_c = 5)
     #g_dad = algo.solve(max_iter=1000, rho = 5000, theta = 0.1, dad = True)
     plt.plot(g_1, 
          label='DMC $\\alpha=1$', 
